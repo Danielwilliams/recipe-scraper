@@ -131,7 +131,7 @@ class AllRecipesScraper:
             # If JSON-LD extraction failed, fallback to HTML parsing
             if not recipe_info:
                 logger.info(f"Falling back to HTML parsing for {url}")
-                recipe_info = self._extract_from_html(soup, url)
+                recipe_info = self._extract_from_html(soup, url, html_content)
             
             return recipe_info
                 
@@ -262,9 +262,13 @@ class AllRecipesScraper:
             logger.error(f"Error parsing JSON-LD in {url}: {str(e)}")
             return None
     
-    def _extract_from_html(self, soup, url):
+    def _extract_from_html(self, soup, url, html_content=None):
         """Extract recipe data from HTML structure when JSON-LD fails"""
         try:
+            # If html_content wasn't passed, get it from the soup object
+            if html_content is None:
+                html_content = str(soup)[:1000]  # Just store the first 1000 chars to save space
+                
             # Extract title
             title_elem = soup.select_one('h1')
             title = title_elem.text.strip() if title_elem else "Untitled Recipe"
