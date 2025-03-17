@@ -1,3 +1,5 @@
+
+
 name: Run Recipe Scraper
 
 on:
@@ -48,3 +50,5 @@ jobs:
           env | grep -v PASSWORD | sort
           
           python main.py --source websites --limit 50
+
+          echo "Test variable: ${{ vars.TEST_VAR }}"
