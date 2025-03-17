@@ -3,14 +3,31 @@ import json
 import logging
 from datetime import datetime
 from psycopg2.extras import execute_values
+from database.db_connector import get_db_connection  # Import the function directly
 
 logger = logging.getLogger(__name__)
 
 class RecipeStorage:
     """Store processed recipes in the database"""
     
-    def __init__(self, db_connector):
+    def __init__(self, db_connector=None):
+        """
+        Initialize RecipeStorage
+        
+        Args:
+            db_connector: Optional database connector object or function
+        """
         self.db_connector = db_connector
+    
+    def get_connection(self):
+        """Get a database connection using the connector or default function"""
+        if self.db_connector:
+            if callable(self.db_connector):
+                return self.db_connector()
+            return self.db_connector.get_db_connection()
+        else:
+            # Fall back to imported function
+            return get_db_connection()
     
     def save_recipe(self, processed_recipe):
         """
@@ -22,7 +39,7 @@ class RecipeStorage:
         Returns:
             int: Recipe ID if successful, None otherwise
         """
-        conn = self.db_connector.get_db_connection()
+        conn = self.get_connection()
         try:
             with conn.cursor() as cursor:
                 # Log metadata for debugging
@@ -167,7 +184,7 @@ class RecipeStorage:
         Returns:
             bool: True if recipe exists, False otherwise
         """
-        conn = self.db_connector.get_db_connection()
+        conn = self.get_connection()
         try:
             with conn.cursor() as cursor:
                 cursor.execute("""
