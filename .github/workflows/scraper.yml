@@ -1,31 +1,40 @@
-name: Run Recipe Scraper
+name: Recipe Scraper
 
 on:
-  schedule:
-    # Run every Sunday at 2:00 AM UTC
-    - cron: '0 2 * * 0'
   workflow_dispatch:
-    # Allows manual triggering
+  schedule:
+    - cron: '0 2 * * 0'
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v3
-
+      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          cache: 'pip'
-
+      
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           python -m spacy download en_core_web_sm
-
+      
+      - name: Test secret access
+        env:
+          TEST_SECRET: ${{ secrets.DB_NAME }}
+        run: |
+          echo "Testing DB_NAME secret..."
+          if [ -n "$TEST_SECRET" ]; then
+            echo "✅ Secret is accessible"
+          else
+            echo "❌ Secret is NOT accessible"
+          fi
+      
       - name: Run recipe scraper
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -34,7 +43,6 @@ jobs:
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_HOST: ${{ secrets.DB_HOST }}
           DB_PORT: ${{ secrets.DB_PORT }}
-          FACEBOOK_ACCESS_TOKEN: ${{ secrets.FACEBOOK_ACCESS_TOKEN }}
-          FACEBOOK_PAGES: ${{ secrets.FACEBOOK_PAGES }}
         run: |
+          echo "Running recipe scraper with database config"
           python main.py --source websites --limit 50
