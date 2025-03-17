@@ -1,3 +1,4 @@
+# database/recipe_storage.py
 import json
 import logging
 from datetime import datetime
@@ -38,9 +39,9 @@ class RecipeStorage:
                     INSERT INTO scraped_recipes (
                         title, source, source_url, instructions, date_scraped, date_processed,
                         complexity, prep_time, cook_time, total_time, servings, cuisine,
-                        is_verified, raw_content, metadata
+                        is_verified, raw_content, metadata, image_url, categories
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     ) RETURNING id
                 """, (
                     recipe['title'],
@@ -54,10 +55,12 @@ class RecipeStorage:
                     recipe['metadata'].get('cook_time'),
                     recipe['metadata'].get('total_time'),
                     recipe['metadata'].get('servings'),
-                    recipe['metadata'].get('cuisine'),
+                    recipe.get('cuisine'),
                     False,  # Not verified initially
-                    recipe.get('raw_content', '')[:1000],  # Limit raw content size
-                    json.dumps(recipe['metadata'])
+                    recipe.get('raw_content', '')[:5000],  # Limit raw content size
+                    json.dumps(recipe['metadata']),
+                    recipe.get('image_url'),
+                    json.dumps(recipe.get('categories', []))
                 ))
                 
                 recipe_id = cursor.fetchone()[0]
@@ -65,16 +68,31 @@ class RecipeStorage:
                 # Insert ingredients
                 if 'ingredients' in recipe and recipe['ingredients']:
                     for ing in recipe['ingredients']:
-                        # Simple ingredient handling for now
-                        cursor.execute("""
-                            INSERT INTO recipe_ingredients
-                            (recipe_id, name, category)
-                            VALUES (%s, %s, %s)
-                        """, (
-                            recipe_id,
-                            ing if isinstance(ing, str) else str(ing),
-                            'unknown'
-                        ))
+                        # Handle structured ingredient parsing
+                        if isinstance(ing, dict):
+                            cursor.execute("""
+                                INSERT INTO recipe_ingredients
+                                (recipe_id, name, amount, unit, notes, category)
+                                VALUES (%s, %s, %s, %s, %s, %s)
+                            """, (
+                                recipe_id,
+                                ing.get('name', ''),
+                                str(ing.get('amount')) if ing.get('amount') is not None else None,
+                                ing.get('unit'),
+                                ing.get('notes'),
+                                ing.get('category', 'unknown')
+                            ))
+                        else:
+                            # Fallback for string ingredients
+                            cursor.execute("""
+                                INSERT INTO recipe_ingredients
+                                (recipe_id, name, category)
+                                VALUES (%s, %s, %s)
+                            """, (
+                                recipe_id,
+                                str(ing),
+                                'unknown'
+                            ))
                 
                 # Insert tags
                 if 'tags' in recipe and recipe['tags']:
@@ -87,6 +105,38 @@ class RecipeStorage:
                             recipe_id,
                             tag
                         ))
+                
+                # Insert nutrition information
+                if recipe.get('nutrition'):
+                    nutrition = recipe['nutrition']
+                    cursor.execute("""
+                        INSERT INTO recipe_nutrition (
+                            recipe_id, calories, protein, carbs, fat, 
+                            saturated_fat, cholesterol, sodium, 
+                            total_sugars, added_sugars, fiber, 
+                            potassium, nutrition_profiles, is_calculated
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, 
+                            %s, %s, %s, 
+                            %s, %s, %s, 
+                            %s, %s, %s
+                        )
+                    """, (
+                        recipe_id,
+                        nutrition.get('calories'),
+                        nutrition.get('protein'),
+                        nutrition.get('carbs'),
+                        nutrition.get('fat'),
+                        nutrition.get('saturated_fat'),
+                        nutrition.get('cholesterol'),
+                        nutrition.get('sodium'),
+                        nutrition.get('total_sugars'),
+                        nutrition.get('added_sugars'),
+                        nutrition.get('fiber'),
+                        nutrition.get('potassium'),
+                        recipe.get('nutrition_profiles', []),
+                        True
+                    ))
                 
                 conn.commit()
                 logger.info(f"Saved recipe '{recipe['title']}' with ID {recipe_id}")
