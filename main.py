@@ -28,6 +28,19 @@ logger.info(f"DB_NAME from config: {'Set' if config.DB_NAME else 'Not set'}")
 logger.info(f"DB_HOST from environ: {'Set' if os.environ.get('DB_HOST') else 'Not set'}")
 logger.info(f"DB_HOST from config: {config.DB_HOST}")
 
+logger.info("Testing database connection...")
+try:
+    from database.db_connector import get_db_connection
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT 1")
+        result = cursor.fetchone()
+    conn.close()
+    logger.info("Database connection successful!")
+except Exception as e:
+    logger.error(f"Database connection failed: {str(e)}")
+    logger.error(traceback.format_exc())
+
 # Import project modules
 from database.db_connector import create_tables_if_not_exist
 from scrapers.allrecipes_scraper import AllRecipesScraper
