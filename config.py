@@ -2,19 +2,26 @@
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+# Try to load .env file if exists locally
+try:
+    load_dotenv()
+except:
+    pass  # In GitHub Actions, we'll use secrets directly
 
 # Database Configuration
-DB_NAME = os.getenv('DB_NAME')
-DB_USER = os.getenv('DB_USER')
-DB_PASSWORD = os.getenv('DB_PASSWORD')
-DB_HOST = os.getenv('DB_HOST', 'localhost')
-DB_PORT = os.getenv('DB_PORT', '5432')
+DB_NAME = os.environ.get('DB_NAME')
+DB_USER = os.environ.get('DB_USER')
+DB_PASSWORD = os.environ.get('DB_PASSWORD')
+DB_HOST = os.environ.get('DB_HOST', 'localhost')
+DB_PORT = os.environ.get('DB_PORT', '5432')
+
+# For DATABASE_URL support
+DATABASE_URL = os.environ.get('DATABASE_URL')
 
 # API Keys and Credentials
-FACEBOOK_ACCESS_TOKEN = os.getenv('FACEBOOK_ACCESS_TOKEN')
-FACEBOOK_PAGES = os.getenv('FACEBOOK_PAGES', '').split(',')
+FACEBOOK_ACCESS_TOKEN = os.environ.get('FACEBOOK_ACCESS_TOKEN')
+FACEBOOK_PAGES = os.environ.get('FACEBOOK_PAGES', '').split(',') if os.environ.get('FACEBOOK_PAGES') else []
+
 
 # Scraping Configuration
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36'
