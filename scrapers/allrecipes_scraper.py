@@ -1,3 +1,4 @@
+# scrapers/allrecipes_scraper.py
 import requests
 import time
 import logging
@@ -10,60 +11,110 @@ logger = logging.getLogger(__name__)
 
 class AllRecipesScraper:
     def __init__(self):
-        self.base_url = "https://www.allrecipes.com"
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
         }
+        
+        # List of category URLs to scrape
+        self.category_urls = [
+            "https://www.allrecipes.com/recipes/76/appetizers-and-snacks/",
+            "https://www.allrecipes.com/recipes/80/main-dish/",
+            "https://www.allrecipes.com/recipes/78/breakfast-and-brunch/",
+            "https://www.allrecipes.com/recipes/17561/lunch/",
+            "https://www.allrecipes.com/recipes/94/soups-stews-and-chili/",
+            "https://www.allrecipes.com/recipes/96/salad/",
+            "https://www.allrecipes.com/recipes/156/bread/",
+            "https://www.allrecipes.com/recipes/79/desserts/",
+            "https://www.allrecipes.com/recipes/1947/everyday-cooking/quick-and-easy/"
+        ]
     
     def scrape(self, limit=50):
         """Scrape recipes from AllRecipes"""
         recipes = []
+        recipes_per_category = max(3, limit // len(self.category_urls))  # Distribute limit across categories
         
-        # Start with a category page
-        category_url = f"{self.base_url}/recipes/dinner/"
-        logger.info(f"Scraping category page: {category_url}")
-        
-        try:
-            response = requests.get(category_url, headers=self.headers, timeout=30)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.text, 'lxml')
-            
-            # Find recipe cards
-            recipe_cards = soup.select('.mntl-card-list-items')
-            
-            for card in recipe_cards[:limit]:
-                try:
-                    # Find the link to the recipe
-                    link_elem = card.select_one('a')
-                    if not link_elem or not link_elem.get('href'):
-                        continue
+        # Loop through each category URL
+        for category_url in self.category_urls:
+            if len(recipes) >= limit:
+                break
+                
+            try:
+                logger.info(f"Scraping category page: {category_url}")
+                
+                response = requests.get(category_url, headers=self.headers, timeout=30)
+                if response.status_code != 200:
+                    logger.error(f"Error accessing URL: {category_url} - Status code: {response.status_code}")
+                    continue
+                
+                soup = BeautifulSoup(response.text, 'lxml')
+                
+                # Find all recipe card links - try different selectors
+                recipe_links = []
+                
+                # Try different possible selectors for the links
+                selectors = [
+                    'a.card__titleLink', 
+                    'a.mntl-card-list-items__link',
+                    'a.comp.mntl-card-list-items.mntl-document-card',
+                    '.mntl-card-list-items .card__title a',
+                    '.card__content a',
+                    '.card__title a',
+                    '.mntl-card-title',
+                    '.card-list__title a',
+                    'a[data-doc-id]',
+                    'a.link-list__link'
+                ]
+                
+                for selector in selectors:
+                    links = soup.select(selector)
+                    logger.info(f"Found {len(links)} links with selector: {selector}")
                     
-                    recipe_url = link_elem['href']
-                    if not recipe_url.startswith('http'):
-                        recipe_url = self.base_url + recipe_url
-                    
-                    logger.info(f"Scraping recipe: {recipe_url}")
-                    
-                    # Get the recipe page
-                    recipe_response = requests.get(recipe_url, headers=self.headers, timeout=30)
-                    recipe_response.raise_for_status()
-                    
-                    # Extract recipe information
-                    recipe_info = self._extract_recipe_info(recipe_response.text, recipe_url)
-                    if recipe_info:
-                        recipes.append(recipe_info)
-                        logger.info(f"Successfully scraped recipe: {recipe_info['title']}")
-                    
-                    # Be polite - don't hammer the server
-                    time.sleep(3)
-                    
-                except Exception as e:
-                    logger.error(f"Error scraping recipe: {str(e)}")
-            
-        except Exception as e:
-            logger.error(f"Error scraping category page: {str(e)}")
+                    for link in links:
+                        href = link.get('href')
+                        if href and '/recipe/' in href:
+                            recipe_links.append(href)
+                
+                # Remove duplicates
+                recipe_links = list(set(recipe_links))
+                logger.info(f"Found {len(recipe_links)} unique recipe links in {category_url}")
+                
+                # Process only up to recipes_per_category for this category
+                category_count = 0
+                for url in recipe_links:
+                    if len(recipes) >= limit or category_count >= recipes_per_category:
+                        break
+                        
+                    try:
+                        # Make sure URL is absolute
+                        if not url.startswith('http'):
+                            url = "https://www.allrecipes.com" + url
+                        
+                        logger.info(f"Scraping recipe: {url}")
+                        
+                        recipe_response = requests.get(url, headers=self.headers, timeout=30)
+                        if recipe_response.status_code != 200:
+                            logger.error(f"Error accessing recipe URL: {url} - Status: {recipe_response.status_code}")
+                            continue
+                        
+                        recipe_info = self._extract_recipe_info(recipe_response.text, url)
+                        if recipe_info:
+                            recipes.append(recipe_info)
+                            category_count += 1
+                            logger.info(f"Successfully scraped recipe: {recipe_info['title']}")
+                        
+                        # Be polite - don't hammer the server
+                        time.sleep(3)
+                        
+                    except Exception as e:
+                        logger.error(f"Error scraping recipe {url}: {str(e)}")
+                
+                # Be polite between categories
+                time.sleep(5)
+                
+            except Exception as e:
+                logger.error(f"Error scraping category page {category_url}: {str(e)}")
         
         logger.info(f"Total recipes scraped: {len(recipes)}")
         return recipes
@@ -76,7 +127,7 @@ class AllRecipesScraper:
             # Look for recipe data in JSON-LD
             script_tag = soup.find('script', {'type': 'application/ld+json'})
             if not script_tag:
-                logger.warning("No JSON-LD data found")
+                logger.warning(f"No JSON-LD data found in {url}")
                 return None
             
             try:
@@ -89,7 +140,7 @@ class AllRecipesScraper:
                     recipe_data = json_data if json_data.get('@type') == 'Recipe' else None
                 
                 if not recipe_data:
-                    logger.warning("No recipe data found in JSON-LD")
+                    logger.warning(f"No recipe data found in JSON-LD for {url}")
                     return None
                 
                 # Extract basic recipe information
@@ -108,6 +159,11 @@ class AllRecipesScraper:
                             instructions.append(step['text'])
                         elif isinstance(step, str):
                             instructions.append(step)
+                
+                # Skip recipes with minimal information
+                if len(ingredients) < 3 or len(instructions) < 2:
+                    logger.warning(f"Recipe has too few ingredients or instructions: {url}")
+                    return None
                 
                 # Extract metadata
                 metadata = {}
@@ -183,15 +239,15 @@ class AllRecipesScraper:
                     'tags': tags,
                     'categories': categories,
                     'metadata': metadata,
-                    'raw_content': html_content
+                    'raw_content': html_content[:1000]  # Store just a portion to save space
                 }
                 
             except json.JSONDecodeError as e:
-                logger.error(f"Error parsing JSON-LD: {str(e)}")
+                logger.error(f"Error parsing JSON-LD in {url}: {str(e)}")
                 return None
                 
         except Exception as e:
-            logger.error(f"Error extracting recipe info: {str(e)}")
+            logger.error(f"Error extracting recipe info from {url}: {str(e)}")
             return None
     
     def _parse_iso_duration(self, iso_duration):
