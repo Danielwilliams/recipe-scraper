@@ -8,15 +8,39 @@ try:
 except:
     pass  # In GitHub Actions, we'll use secrets directly
 
-# Database Configuration
-DB_NAME = os.environ.get('DB_NAME')
-DB_USER = os.environ.get('DB_USER')
-DB_PASSWORD = os.environ.get('DB_PASSWORD')
-DB_HOST = os.environ.get('DB_HOST', 'localhost')
-DB_PORT = os.environ.get('DB_PORT', '5432')
-
-# For DATABASE_URL support
+# Database Configuration - priority to DATABASE_URL if available
 DATABASE_URL = os.environ.get('DATABASE_URL')
+
+# If DATABASE_URL is available, extract components for individual settings
+if DATABASE_URL:
+    try:
+        # Parse DATABASE_URL (format: postgresql://user:password@host:port/dbname)
+        import re
+        pattern = r'postgresql://([^:]+):([^@]+)@([^:]+):(\d+)/(.+)'
+        match = re.match(pattern, DATABASE_URL)
+        if match:
+            DB_USER = match.group(1)
+            DB_PASSWORD = match.group(2)
+            DB_HOST = match.group(3)
+            DB_PORT = match.group(4)
+            DB_NAME = match.group(5)
+        else:
+            raise ValueError("Invalid DATABASE_URL format")
+    except Exception as e:
+        print(f"Error parsing DATABASE_URL: {e}")
+        # Fall back to individual settings
+        DB_NAME = os.environ.get('DB_NAME')
+        DB_USER = os.environ.get('DB_USER')
+        DB_PASSWORD = os.environ.get('DB_PASSWORD')
+        DB_HOST = os.environ.get('DB_HOST')
+        DB_PORT = os.environ.get('DB_PORT', '5432')
+else:
+    # Use individual settings
+    DB_NAME = os.environ.get('DB_NAME')
+    DB_USER = os.environ.get('DB_USER')
+    DB_PASSWORD = os.environ.get('DB_PASSWORD')
+    DB_HOST = os.environ.get('DB_HOST')
+    DB_PORT = os.environ.get('DB_PORT', '5432')
 
 # API Keys and Credentials
 FACEBOOK_ACCESS_TOKEN = os.environ.get('FACEBOOK_ACCESS_TOKEN')
