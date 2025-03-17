@@ -429,4 +429,4 @@ class EatingWellScraper:
         
         except Exception as e:
             logger.error(f"Error extracting nutrition info: {str(e)}")
-            return None# scrapers/eatingwell_scraper.py
+            return None
