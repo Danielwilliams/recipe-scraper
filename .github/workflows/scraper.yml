@@ -1,16 +1,50 @@
-name: Basic Test
+name: Run Recipe Scraper
 
 on:
-  workflow_dispatch:  # Allow manual triggering
+  schedule:
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
 
 jobs:
-  test:
+  scrape:
     runs-on: ubuntu-latest
     steps:
-      - name: Basic environment test
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
         run: |
-          echo "Hello World"
-          echo "Current directory:"
-          pwd
-          echo "Directory contents:"
-          ls -la
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m spacy download en_core_web_sm
+
+      - name: Debug environment variables
+        run: |
+          echo "DB_NAME secret exists: ${{ secrets.DB_NAME != '' }}"
+          echo "DB_USER secret exists: ${{ secrets.DB_USER != '' }}"
+          echo "DB_HOST secret exists: ${{ secrets.DB_HOST != '' }}"
+          echo "DB_PORT secret exists: ${{ secrets.DB_PORT != '' }}"
+          echo "DATABASE_URL secret exists: ${{ secrets.DATABASE_URL != '' }}"
+
+      - name: Run recipe scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          FACEBOOK_ACCESS_TOKEN: ${{ secrets.FACEBOOK_ACCESS_TOKEN }}
+          FACEBOOK_PAGES: ${{ secrets.FACEBOOK_PAGES }}
+        run: |
+          # Print env vars to debug (hide password)
+          echo "Environment variables:"
+          env | grep -v PASSWORD | sort
+          
+          python main.py --source websites --limit 50
