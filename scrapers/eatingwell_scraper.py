@@ -70,7 +70,7 @@ class EatingWellScraper:
             "https://www.eatingwell.com/category/4241/popular-diet-program-reviews/"
         ]
 
-            def _find_nested_recipe_links(self, url):
+    def _find_nested_recipe_links(self, url):
         """
         Find all recipe links within a collection or category page
         
