@@ -262,6 +262,81 @@ class AllRecipesScraper:
             logger.error(f"Error parsing JSON-LD in {url}: {str(e)}")
             return None
     
+    
+    
+    def _parse_iso_duration(self, iso_duration):
+        """Parse ISO 8601 duration to minutes"""
+        if not iso_duration:
+            return None
+        
+        try:
+            # Handle PT1H30M format (ISO 8601 duration)
+            match = re.search(r'PT(?:(\d+)H)?(?:(\d+)M)?', iso_duration)
+            if match:
+                hours = int(match.group(1) or 0)
+                minutes = int(match.group(2) or 0)
+                return hours * 60 + minutes
+            
+            return None
+        except Exception:
+            return None
+
+def _extract_nutrition(self, soup):
+        """Extract detailed nutrition information from the page"""
+        try:
+            # Find the nutrition facts table
+            nutrition_table = soup.select_one('.mm-recipes-nutrition-facts-summary__table')
+            
+            if not nutrition_table:
+                return None
+            
+            # Initialize nutrition data dictionary
+            nutrition_data = {
+                'calories': None,
+                'fat': None,
+                'carbs': None,
+                'protein': None,
+                # Add other fields that might be common
+                'saturated_fat': None,
+                'cholesterol': None,
+                'sodium': None,
+                'fiber': None,
+                'sugars': None
+            }
+            
+            # Extract nutrition values from table rows
+            rows = nutrition_table.select('.mm-recipes-nutrition-facts-summary__table-row')
+            for row in rows:
+                value_cell = row.select_one('.mm-recipes-nutrition-facts-summary__table-cell.text-body-100-prominent')
+                label_cell = row.select_one('.mm-recipes-nutrition-facts-summary__table-cell.text-body-100')
+                
+                if value_cell and label_cell:
+                    value = value_cell.text.strip().rstrip('g ')
+                    label = label_cell.text.strip().lower()
+                    
+                    try:
+                        # Convert to float, removing any non-numeric characters
+                        numeric_value = float(value)
+                        
+                        # Map labels to nutrition keys
+                        if 'calories' in label:
+                            nutrition_data['calories'] = numeric_value
+                        elif 'fat' in label:
+                            nutrition_data['fat'] = numeric_value
+                        elif 'carbs' in label:
+                            nutrition_data['carbs'] = numeric_value
+                        elif 'protein' in label:
+                            nutrition_data['protein'] = numeric_value
+                    except (ValueError, TypeError):
+                        pass  # Skip if conversion fails
+            
+            logger.info(f"Extracted nutrition data: {nutrition_data}")
+            return nutrition_data
+        
+        except Exception as e:
+            logger.error(f"Error extracting nutrition info: {str(e)}")
+            return None
+
     def _extract_from_html(self, soup, url, html_content=None):
         """Extract recipe data from HTML structure when JSON-LD fails"""
         try:
@@ -384,83 +459,8 @@ class AllRecipesScraper:
                                 if servings_match:
                                     metadata['servings'] = int(servings_match.group(1))
             
-            # If no times were found, try alternative selectors as backup
-            if 'prep_time' not in metadata or 'cook_time' not in metadata:
-                time_selectors = {
-                    'prep_time': ['[data-testid="prep-time"]', '.recipe-meta-item:contains("Prep Time")', '.recipe-meta-item-header:contains("Prep:")'],
-                    'cook_time': ['[data-testid="cook-time"]', '.recipe-meta-item:contains("Cook Time")', '.recipe-meta-item-header:contains("Cook:")'],
-                    'total_time': ['[data-testid="total-time"]', '.recipe-meta-item:contains("Total Time")', '.recipe-meta-item-header:contains("Total:")']
-                }
-                
-                for time_type, selectors in time_selectors.items():
-                    if time_type in metadata:  # Skip if already found
-                        continue
-                        
-                    for selector in selectors:
-                        time_elem = None
-                        if ':contains' in selector:
-                            # BeautifulSoup doesn't directly support :contains, so we need a different approach
-                            key_text = selector.split(':contains("')[1].split('")')[0]
-                            meta_items = soup.select('.recipe-meta-item, .recipe-meta-item-header')
-                            for item in meta_items:
-                                if key_text in item.text:
-                                    time_elem = item.parent
-                                    break
-                        else:
-                            time_elem = soup.select_one(selector)
-                        
-                        if time_elem:
-                            time_text = time_elem.text.strip()
-                            time_match = re.search(r'(\d+)\s*(mins|min|minutes|minute|hrs|hr|hours|hour)', time_text, re.IGNORECASE)
-                            if time_match:
-                                value = int(time_match.group(1))
-                                unit = time_match.group(2).lower()
-                                if 'hr' in unit:
-                                    value *= 60
-                                metadata[time_type] = value
-                                logger.info(f"Extracted {time_type} using alternative method: {value} minutes")
-                            break
-            
-            # Servings
-            servings_elem = soup.select_one('[data-testid="recipe-servings"]')
-            if servings_elem:
-                servings_text = servings_elem.text.strip()
-                servings_match = re.search(r'(\d+)', servings_text)
-                if servings_match:
-                    metadata['servings'] = int(servings_match.group(1))
-            
-            # Extract possible cuisine from breadcrumbs
-            cuisine = None
-            breadcrumbs = soup.select('.breadcrumbs__link')
-            for crumb in breadcrumbs:
-                crumb_text = crumb.text.strip().lower()
-                # Check if this breadcrumb might be a cuisine
-                cuisines = ["italian", "mexican", "chinese", "indian", "french", "thai", "japanese", 
-                           "greek", "mediterranean", "spanish", "american", "korean", "vietnamese"]
-                if crumb_text in cuisines:
-                    cuisine = crumb_text.capitalize()
-                    break
-            
-            if cuisine:
-                metadata['cuisine'] = cuisine
-            
-            # Extract categories from breadcrumbs
-            categories = []
-            for crumb in breadcrumbs:
-                crumb_text = crumb.text.strip()
-                if crumb_text and crumb_text.lower() not in ['home', 'recipes']:
-                    categories.append(crumb_text)
-            
-            # Generate tags
-            tags = []
-            tags.extend(categories)
-            
-            # Add meal type tags if applicable
-            meal_types = ['breakfast', 'lunch', 'dinner', 'dessert', 'snack', 'appetizer']
-            page_text = soup.get_text().lower()
-            for meal in meal_types:
-                if meal in page_text:
-                    tags.append(meal)
+            # Extract nutrition information
+            nutrition_data = self._extract_nutrition(soup)
             
             # Determine complexity based on number of ingredients and steps
             complexity = "easy"
@@ -469,7 +469,31 @@ class AllRecipesScraper:
             elif len(ingredients) >= 6 or len(instructions) >= 4:
                 complexity = "medium"
             
-            return {
+            # Breadcrumb for category/cuisine
+            categories = []
+            breadcrumbs = soup.select('.breadcrumbs__link')
+            for crumb in breadcrumbs:
+                crumb_text = crumb.text.strip()
+                if crumb_text and crumb_text.lower() not in ['home', 'recipes']:
+                    categories.append(crumb_text)
+            
+            # Infer cuisine
+            cuisine = None
+            for crumb in categories:
+                known_cuisines = ['Italian', 'Mexican', 'Chinese', 'Indian', 
+                                  'Japanese', 'Thai', 'French', 'Greek', 
+                                  'Mediterranean', 'Spanish', 'Korean', 'Vietnamese']
+                if crumb in known_cuisines:
+                    cuisine = crumb
+                    break
+            
+            # Generate tags
+            tags = []
+            tags.extend(categories)
+            tags.append(complexity + ' recipe')
+            
+            # Construct recipe dictionary
+            recipe = {
                 'title': title,
                 'ingredients': ingredients,
                 'instructions': instructions,
@@ -477,29 +501,16 @@ class AllRecipesScraper:
                 'source_url': url,
                 'date_scraped': datetime.now().isoformat(),
                 'complexity': complexity,
-                'tags': tags,
                 'categories': categories,
+                'cuisine': cuisine,
+                'tags': tags,
                 'metadata': metadata,
+                'nutrition': nutrition_data,
                 'raw_content': html_content[:1000]  # Store just a portion to save space
             }
             
+            return recipe
+            
         except Exception as e:
             logger.error(f"Error extracting recipe from HTML in {url}: {str(e)}")
-            return None
-    
-    def _parse_iso_duration(self, iso_duration):
-        """Parse ISO 8601 duration to minutes"""
-        if not iso_duration:
-            return None
-        
-        try:
-            # Handle PT1H30M format (ISO 8601 duration)
-            match = re.search(r'PT(?:(\d+)H)?(?:(\d+)M)?', iso_duration)
-            if match:
-                hours = int(match.group(1) or 0)
-                minutes = int(match.group(2) or 0)
-                return hours * 60 + minutes
-            
-            return None
-        except Exception:
             return None
