@@ -351,37 +351,75 @@ class AllRecipesScraper:
             # Extract metadata
             metadata = {}
             
-            # Try different methods to extract prep and cook times
-            time_selectors = {
-                'prep_time': ['[data-testid="prep-time"]', '.recipe-meta-item:contains("Prep Time")'],
-                'cook_time': ['[data-testid="cook-time"]', '.recipe-meta-item:contains("Cook Time")'],
-                'total_time': ['[data-testid="total-time"]', '.recipe-meta-item:contains("Total Time")']
-            }
-            
-            for time_type, selectors in time_selectors.items():
-                for selector in selectors:
-                    time_elem = None
-                    if ':contains' in selector:
-                        # BeautifulSoup doesn't directly support :contains, so we need a different approach
-                        key_text = selector.split(':contains("')[1].split('")')[0]
-                        meta_items = soup.select('.recipe-meta-item')
-                        for item in meta_items:
-                            if key_text in item.text:
-                                time_elem = item
-                                break
-                    else:
-                        time_elem = soup.select_one(selector)
+            # Extract time details using the structure in the HTML you provided
+            # Try the new structure first
+            time_details = soup.select('.mm-recipes-details__item')
+            if time_details:
+                for detail in time_details:
+                    label_elem = detail.select_one('.mm-recipes-details__label')
+                    value_elem = detail.select_one('.mm-recipes-details__value')
                     
-                    if time_elem:
-                        time_text = time_elem.text.strip()
-                        time_match = re.search(r'(\d+)\s*(mins|min|minutes|minute|hrs|hr|hours|hour)', time_text, re.IGNORECASE)
+                    if label_elem and value_elem:
+                        label = label_elem.text.strip().lower()
+                        value_text = value_elem.text.strip()
+                        
+                        # Extract time in minutes from text like "15 mins" or "1 hr 15 mins"
+                        time_match = re.search(r'(\d+)\s*(hrs?|hours?)?(?:\s+(\d+)\s*(mins?|minutes?)?)?', value_text, re.IGNORECASE)
+                        
                         if time_match:
-                            value = int(time_match.group(1))
-                            unit = time_match.group(2).lower()
-                            if 'hr' in unit:
-                                value *= 60
-                            metadata[time_type] = value
-                        break
+                            hours = int(time_match.group(1) or 0) if time_match.group(2) else 0
+                            minutes = int(time_match.group(3) or 0) if time_match.group(4) else int(time_match.group(1) or 0)
+                            total_minutes = hours * 60 + minutes
+                            
+                            if 'prep time' in label:
+                                metadata['prep_time'] = total_minutes
+                                logger.info(f"Extracted prep time: {total_minutes} minutes")
+                            elif 'cook time' in label:
+                                metadata['cook_time'] = total_minutes
+                                logger.info(f"Extracted cook time: {total_minutes} minutes")
+                            elif 'total time' in label:
+                                metadata['total_time'] = total_minutes
+                            elif 'servings' in label:
+                                servings_match = re.search(r'(\d+)', value_text)
+                                if servings_match:
+                                    metadata['servings'] = int(servings_match.group(1))
+            
+            # If no times were found, try alternative selectors as backup
+            if 'prep_time' not in metadata or 'cook_time' not in metadata:
+                time_selectors = {
+                    'prep_time': ['[data-testid="prep-time"]', '.recipe-meta-item:contains("Prep Time")', '.recipe-meta-item-header:contains("Prep:")'],
+                    'cook_time': ['[data-testid="cook-time"]', '.recipe-meta-item:contains("Cook Time")', '.recipe-meta-item-header:contains("Cook:")'],
+                    'total_time': ['[data-testid="total-time"]', '.recipe-meta-item:contains("Total Time")', '.recipe-meta-item-header:contains("Total:")']
+                }
+                
+                for time_type, selectors in time_selectors.items():
+                    if time_type in metadata:  # Skip if already found
+                        continue
+                        
+                    for selector in selectors:
+                        time_elem = None
+                        if ':contains' in selector:
+                            # BeautifulSoup doesn't directly support :contains, so we need a different approach
+                            key_text = selector.split(':contains("')[1].split('")')[0]
+                            meta_items = soup.select('.recipe-meta-item, .recipe-meta-item-header')
+                            for item in meta_items:
+                                if key_text in item.text:
+                                    time_elem = item.parent
+                                    break
+                        else:
+                            time_elem = soup.select_one(selector)
+                        
+                        if time_elem:
+                            time_text = time_elem.text.strip()
+                            time_match = re.search(r'(\d+)\s*(mins|min|minutes|minute|hrs|hr|hours|hour)', time_text, re.IGNORECASE)
+                            if time_match:
+                                value = int(time_match.group(1))
+                                unit = time_match.group(2).lower()
+                                if 'hr' in unit:
+                                    value *= 60
+                                metadata[time_type] = value
+                                logger.info(f"Extracted {time_type} using alternative method: {value} minutes")
+                            break
             
             # Servings
             servings_elem = soup.select_one('[data-testid="recipe-servings"]')
