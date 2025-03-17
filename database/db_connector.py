@@ -4,6 +4,7 @@ import logging
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import config
+import traceback
 
 logger = logging.getLogger(__name__)
 
