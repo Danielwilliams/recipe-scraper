@@ -7,6 +7,20 @@ import config
 
 logger = logging.getLogger(__name__)
 
+# Add this after environment variable logging
+logger.info("Testing database connection...")
+try:
+    from database.db_connector import get_db_connection
+    conn = get_db_connection()
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT 1")
+        result = cursor.fetchone()
+    conn.close()
+    logger.info("Database connection successful!")
+except Exception as e:
+    logger.error(f"Database connection failed: {str(e)}")
+    logger.error(traceback.format_exc())
+
 def get_db_connection():
     """Connect to the PostgreSQL database"""
     try:
