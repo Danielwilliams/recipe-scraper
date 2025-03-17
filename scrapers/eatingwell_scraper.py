@@ -3,14 +3,29 @@ import requests
 import time
 import logging
 import re
+import random
 from datetime import datetime
 from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 
+# Configure more detailed logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('eatingwell_scraper.log')
+    ]
+)
 logger = logging.getLogger(__name__)
 
 class EatingWellScraper:
     def __init__(self):
+        """
+        Initialize the EatingWell scraper with headers and category URLs
+        """
+        logger.info("Initializing EatingWell Scraper")
+        
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -69,6 +84,8 @@ class EatingWellScraper:
             "https://www.eatingwell.com/category/4326/veganize-it/",
             "https://www.eatingwell.com/category/4241/popular-diet-program-reviews/"
         ]
+        
+        logger.info(f"Initialized with {len(self.category_urls)} category URLs")
 
     def _find_nested_recipe_links(self, url):
         """
@@ -80,8 +97,13 @@ class EatingWellScraper:
         Returns:
             list: Unique recipe links found on the page
         """
+        logger.info(f"Finding nested recipe links for URL: {url}")
+        
         try:
+            # Log request details
+            logger.debug(f"Sending GET request to {url}")
             response = requests.get(url, headers=self.headers, timeout=30)
+            
             if response.status_code != 200:
                 logger.error(f"Error accessing URL: {url} - Status code: {response.status_code}")
                 return []
@@ -110,6 +132,8 @@ class EatingWellScraper:
             
             for selector in link_selectors:
                 links = soup.select(selector)
+                logger.debug(f"Selector {selector}: found {len(links)} potential links")
+                
                 for link in links:
                     href = link.get('href')
                     if not href:
@@ -136,18 +160,31 @@ class EatingWellScraper:
             logger.info(f"Found {len(recipe_links)} unique recipe links on {url}")
             return list(recipe_links)
         
-        except Exception as e:
-            logger.error(f"Error finding recipe links in {url}: {str(e)}")
+        except requests.RequestException as e:
+            logger.error(f"Network error finding recipe links in {url}: {str(e)}")
             return []
-    
+        except Exception as e:
+            logger.error(f"Unexpected error finding recipe links in {url}: {str(e)}")
+            return []
+
     def scrape(self, limit=50):
-        """Scrape recipes from EatingWell"""
+        """
+        Scrape recipes from EatingWell
+        
+        Args:
+            limit (int): Maximum number of recipes to scrape
+            
+        Returns:
+            list: Scraped recipes
+        """
+        logger.info(f"Starting EatingWell scraping with limit: {limit}")
         recipes = []
         recipes_per_category = max(3, limit // len(self.category_urls))  # Distribute limit across categories
         
         # Comprehensive set of recipe-finding strategies
         for category_url in self.category_urls:
             if len(recipes) >= limit:
+                logger.info(f"Reached total recipe limit of {limit}")
                 break
                 
             try:
@@ -157,13 +194,13 @@ class EatingWellScraper:
                 recipe_links = self._find_nested_recipe_links(category_url)
                 
                 # Add some randomness to link selection to diversify scraping
-                import random
                 random.shuffle(recipe_links)
                 
                 # Process only up to recipes_per_category for this category
                 category_count = 0
                 for url in recipe_links:
                     if len(recipes) >= limit or category_count >= recipes_per_category:
+                        logger.info(f"Reached limit for category {category_url}")
                         break
                         
                     try:
@@ -194,7 +231,7 @@ class EatingWellScraper:
         
         logger.info(f"Total recipes scraped: {len(recipes)}")
         return recipes
-    
+
     def _extract_recipe_info(self, html_content, url):
         """Extract structured recipe information from HTML"""
         soup = BeautifulSoup(html_content, 'lxml')
@@ -268,9 +305,15 @@ class EatingWellScraper:
             
             # Extract nutrition profiles
             nutrition_profiles = []
-            profile_elems = soup.select('.mm-recipes-details__nutrition-profile-item')
-            for profile in profile_elems:
-                nutrition_profiles.append(profile.text.strip())
+            profile_container = soup.select_one('.mm-recipes-details__nutrition-profile')
+            if profile_container:
+                profile_elems = profile_container.select('.mm-recipes-details__nutrition-profile-item')
+                for profile in profile_elems:
+                    profile_text = profile.text.strip()
+                    if profile_text:
+                        nutrition_profiles.append(profile_text)
+                
+                logger.info(f"Extracted nutrition profiles: {nutrition_profiles}")
             
             # Determine complexity
             complexity = "easy"
@@ -290,7 +333,7 @@ class EatingWellScraper:
             # Infer cuisine
             cuisine = None
             for crumb in categories:
-                known_cuisines = ['Italian', 'Mexican', 'Chinese', 'Indian', 
+                known_cuisines = ['Italian', 'Mexican', 'Chinese','Indian', 
                                   'Japanese', 'Thai', 'French', 'Greek', 
                                   'Mediterranean', 'Spanish', 'Korean', 'Vietnamese']
                 if crumb in known_cuisines:
@@ -330,7 +373,7 @@ class EatingWellScraper:
         except Exception as e:
             logger.error(f"Error extracting recipe from {url}: {str(e)}")
             return None
-    
+
     def _extract_nutrition(self, soup):
         """Extract detailed nutrition information from the page"""
         try:
@@ -386,4 +429,4 @@ class EatingWellScraper:
         
         except Exception as e:
             logger.error(f"Error extracting nutrition info: {str(e)}")
-            return None
+            return None# scrapers/eatingwell_scraper.py
