@@ -4,6 +4,7 @@ import sys
 import time
 from datetime import datetime
 from database.recipe_storage import RecipeStorage
+import config
 
 # Configure basic logging
 logging.basicConfig(
@@ -15,6 +16,15 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# Check environment variables
+logger.info("Environment variable check:")
+logger.info(f"DATABASE_URL from environ: {'Set' if os.environ.get('DATABASE_URL') else 'Not set'}")
+logger.info(f"DATABASE_URL from config: {'Set' if config.DATABASE_URL else 'Not set'}")
+logger.info(f"DB_NAME from environ: {'Set' if os.environ.get('DB_NAME') else 'Not set'}")
+logger.info(f"DB_NAME from config: {'Set' if config.DB_NAME else 'Not set'}")
+logger.info(f"DB_HOST from environ: {'Set' if os.environ.get('DB_HOST') else 'Not set'}")
+logger.info(f"DB_HOST from config: {config.DB_HOST}")
 
 # Import project modules
 from database.db_connector import create_tables_if_not_exist
