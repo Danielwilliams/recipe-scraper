@@ -380,7 +380,7 @@ class AllRecipesScraper:
         # (The full method is the same as in the previous response)
         pass
 
-     def _parse_iso_duration(self, iso_duration):
+    def _parse_iso_duration(self, iso_duration):
         """Parse ISO 8601 duration to minutes"""
         if not iso_duration:
             return None
