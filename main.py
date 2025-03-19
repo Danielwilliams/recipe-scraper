@@ -7,7 +7,7 @@ from database.recipe_storage import RecipeStorage
 from scrapers.allrecipes_scraper import AllRecipesScraper
 from scrapers.eatingwell_scraper import EatingWellScraper
 from scrapers.foodnetwork_scraper import FoodNetworkScraper
-from scrapers.epicurious_scraper import EpicuriousScraper
+
 
 # Configure logging
 logging.basicConfig(
@@ -58,8 +58,7 @@ def update_image_urls():
         scrapers = {
             'AllRecipes': AllRecipesScraper(),
             'EatingWell': EatingWellScraper(),
-            'Food Network': FoodNetworkScraper(),
-            'Epicurious': EpicuriousScraper()
+            'Food Network': FoodNetworkScraper()
         }
         
         storage = RecipeStorage()
@@ -154,7 +153,6 @@ def main():
                 ('AllRecipes', AllRecipesScraper()),
                 ('EatingWell', EatingWellScraper()),
                 ('FoodNetwork', FoodNetworkScraper()),
-                ('Epicurious', EpicuriousScraper())
             ]
         elif args.source == 'allrecipes':
             scrapers = [('AllRecipes', AllRecipesScraper())]
@@ -162,8 +160,7 @@ def main():
             scrapers = [('EatingWell', EatingWellScraper())]
         elif args.source == 'foodnetwork':
             scrapers = [('FoodNetwork', FoodNetworkScraper())]
-        elif args.source == 'epicurious':
-            scrapers = [('Epicurious', EpicuriousScraper())]
+
         
         # Scrape from each source
         for scraper_name, scraper in scrapers:
