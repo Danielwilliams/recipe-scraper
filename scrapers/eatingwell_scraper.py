@@ -232,52 +232,58 @@ class EatingWellScraper:
         logger.info(f"Total recipes scraped: {len(recipes)}")
         return recipes
 
-    def _extract_recipe_info(self, html_content, url):
-        """Extract structured recipe information from HTML"""
-        soup = BeautifulSoup(html_content, 'lxml')
+# Update for EatingWellScraper - Better Image Extraction
+
+def _extract_recipe_info(self, html_content, url):
+    """Extract structured recipe information from HTML"""
+    soup = BeautifulSoup(html_content, 'lxml')
+    
+    try:
+        # Extract title
+        title_elem = soup.select_one('h1.article-heading')
+        title = title_elem.text.strip() if title_elem else "Untitled Recipe"
         
-        try:
-            # Extract title
-            title_elem = soup.select_one('h1.article-heading')
-            title = title_elem.text.strip() if title_elem else "Untitled Recipe"
+        # Extract ingredients
+        ingredients = []
+        ingredient_items = soup.select('.mm-recipes-structured-ingredients__list-item')
+        
+        for item in ingredient_items:
+            quantity = item.select_one('[data-ingredient-quantity="true"]')
+            unit = item.select_one('[data-ingredient-unit="true"]')
+            name = item.select_one('[data-ingredient-name="true"]')
             
-            # Extract ingredients
-            ingredients = []
-            ingredient_items = soup.select('.mm-recipes-structured-ingredients__list-item')
+            ingredient_text = ""
+            if quantity:
+                ingredient_text += quantity.text.strip() + " "
+            if unit:
+                ingredient_text += unit.text.strip() + " "
+            if name:
+                ingredient_text += name.text.strip()
             
-            for item in ingredient_items:
-                quantity = item.select_one('[data-ingredient-quantity="true"]')
-                unit = item.select_one('[data-ingredient-unit="true"]')
-                name = item.select_one('[data-ingredient-name="true"]')
-                
-                ingredient_text = ""
-                if quantity:
-                    ingredient_text += quantity.text.strip() + " "
-                if unit:
-                    ingredient_text += unit.text.strip() + " "
-                if name:
-                    ingredient_text += name.text.strip()
-                
-                if ingredient_text.strip():
-                    ingredients.append(ingredient_text.strip())
+            if ingredient_text.strip():
+                ingredients.append(ingredient_text.strip())
+        
+        # Extract instructions
+        instructions = []
+        instruction_items = soup.select('.mm-recipes-steps .mntl-sc-block-group--LI p')
+        
+        for item in instruction_items:
+            step = item.text.strip()
+            if step:
+                instructions.append(step)
+        
+        # Extract metadata
+        metadata = {}
+        
+        # Time details
+        time_details = soup.select('.mm-recipes-details__item')
+        for detail in time_details:
+            label_elem = detail.select_one('.mm-recipes-details__label')
+            value_elem = detail.select_one('.mm-recipes-details__value')
             
-            # Extract instructions
-            instructions = []
-            instruction_items = soup.select('.mm-recipes-steps .mntl-sc-block-group--LI p')
-            
-            for item in instruction_items:
-                step = item.text.strip()
-                if step:
-                    instructions.append(step)
-            
-            # Extract metadata
-            metadata = {}
-            
-            # Time details
-            time_details = soup.select('.mm-recipes-details__item')
-            for detail in time_details:
-                label = detail.select_one('.mm-recipes-details__label').text.strip().lower()
-                value = detail.select_one('.mm-recipes-details__value').text.strip()
+            if label_elem and value_elem:
+                label = label_elem.text.strip().lower()
+                value = value_elem.text.strip()
                 
                 time_match = re.search(r'(\d+)\s*(mins?|hrs?)?', value, re.IGNORECASE)
                 if time_match:
@@ -299,80 +305,118 @@ class EatingWellScraper:
                     servings_match = re.search(r'(\d+)', value)
                     if servings_match:
                         metadata['servings'] = int(servings_match.group(1))
+        
+        # Extract nutrition information
+        nutrition_data = self._extract_nutrition(soup)
+        
+        # Extract nutrition profiles
+        nutrition_profiles = []
+        profile_container = soup.select_one('.mm-recipes-details__nutrition-profile')
+        if profile_container:
+            profile_elems = profile_container.select('.mm-recipes-details__nutrition-profile-item')
+            for profile in profile_elems:
+                profile_text = profile.text.strip()
+                if profile_text:
+                    nutrition_profiles.append(profile_text)
             
-            # Extract nutrition information
-            nutrition_data = self._extract_nutrition(soup)
-            
-            # Extract nutrition profiles
-            nutrition_profiles = []
-            profile_container = soup.select_one('.mm-recipes-details__nutrition-profile')
-            if profile_container:
-                profile_elems = profile_container.select('.mm-recipes-details__nutrition-profile-item')
-                for profile in profile_elems:
-                    profile_text = profile.text.strip()
-                    if profile_text:
-                        nutrition_profiles.append(profile_text)
-                
-                logger.info(f"Extracted nutrition profiles: {nutrition_profiles}")
-            
-            # Determine complexity
-            complexity = "easy"
-            if len(ingredients) >= 10 or len(instructions) >= 7:
-                complexity = "complex"
-            elif len(ingredients) >= 6 or len(instructions) >= 4:
-                complexity = "medium"
-            
-            # Breadcrumb for category/cuisine
-            categories = []
-            breadcrumbs = soup.select('.mntl-breadcrumbs__link')
-            for crumb in breadcrumbs:
-                crumb_text = crumb.text.strip()
-                if crumb_text and crumb_text.lower() not in ['home', 'recipes']:
-                    categories.append(crumb_text)
-            
-            # Infer cuisine
-            cuisine = None
-            for crumb in categories:
-                known_cuisines = ['Italian', 'Mexican', 'Chinese','Indian', 
-                                  'Japanese', 'Thai', 'French', 'Greek', 
-                                  'Mediterranean', 'Spanish', 'Korean', 'Vietnamese']
-                if crumb in known_cuisines:
-                    cuisine = crumb
-                    break
-            
-            # Generate tags
-            tags = []
-            tags.extend(nutrition_profiles)
-            tags.append(complexity + ' recipe')
-            
-            # Image URL
-            image_elem = soup.select_one('.primary-image__image')
-            image_url = image_elem.get('src') if image_elem else None
-            
-            # Construct recipe dictionary
-            recipe = {
-                'title': title,
-                'ingredients': ingredients,
-                'instructions': instructions,
-                'source': 'EatingWell',
-                'source_url': url,
-                'date_scraped': datetime.now().isoformat(),
-                'complexity': complexity,
-                'categories': categories,
-                'cuisine': cuisine,
-                'tags': tags,
-                'metadata': metadata,
-                'nutrition': nutrition_data,
-                'image_url': image_url,
-                'nutrition_profiles': nutrition_profiles,
-                'raw_content': html_content[:5000]  # Store first 5000 chars
-            }
-            
-            return recipe
-            
-        except Exception as e:
-            logger.error(f"Error extracting recipe from {url}: {str(e)}")
-            return None
+            logger.info(f"Extracted nutrition profiles: {nutrition_profiles}")
+        
+        # Determine complexity
+        complexity = "easy"
+        if len(ingredients) >= 10 or len(instructions) >= 7:
+            complexity = "complex"
+        elif len(ingredients) >= 6 or len(instructions) >= 4:
+            complexity = "medium"
+        
+        # Breadcrumb for category/cuisine
+        categories = []
+        breadcrumbs = soup.select('.mntl-breadcrumbs__link')
+        for crumb in breadcrumbs:
+            crumb_text = crumb.text.strip()
+            if crumb_text and crumb_text.lower() not in ['home', 'recipes']:
+                categories.append(crumb_text)
+        
+        # Infer cuisine
+        cuisine = None
+        for crumb in categories:
+            known_cuisines = ['Italian', 'Mexican', 'Chinese','Indian', 
+                            'Japanese', 'Thai', 'French', 'Greek', 
+                            'Mediterranean', 'Spanish', 'Korean', 'Vietnamese']
+            if crumb in known_cuisines:
+                cuisine = crumb
+                break
+        
+        # Generate tags
+        tags = []
+        tags.extend(nutrition_profiles)
+        tags.append(complexity + ' recipe')
+        
+        # UPDATED: Enhanced image URL extraction with multiple fallbacks
+        image_url = None
+        
+        # Try primary image
+        image_elem = soup.select_one('.primary-image__image')
+        if image_elem:
+            image_url = image_elem.get('src')
+        
+        # Try universal image
+        if not image_url:
+            image_elem = soup.select_one('.universal-image__image')
+            if image_elem:
+                image_url = image_elem.get('src') or image_elem.get('data-src')
+        
+        # Try figure image
+        if not image_url:
+            image_elem = soup.select_one('figure.primary-media img')
+            if image_elem:
+                image_url = image_elem.get('src') or image_elem.get('data-src')
+        
+        # Try structured data
+        if not image_url:
+            for script in soup.find_all('script', {'type': 'application/ld+json'}):
+                try:
+                    json_data = json.loads(script.string)
+                    if isinstance(json_data, dict) and '@type' in json_data and json_data['@type'] == 'Recipe':
+                        if 'image' in json_data:
+                            image_data = json_data['image']
+                            if isinstance(image_data, list):
+                                image_url = image_data[0] if image_data else None
+                            else:
+                                image_url = image_data
+                            break
+                except:
+                    continue
+        
+        # Try OG image as final fallback
+        if not image_url:
+            og_image = soup.find('meta', {'property': 'og:image'})
+            if og_image:
+                image_url = og_image.get('content')
+        
+        # Construct recipe dictionary
+        recipe = {
+            'title': title,
+            'ingredients': ingredients,
+            'instructions': instructions,
+            'source': 'EatingWell',
+            'source_url': url,
+            'date_scraped': datetime.now().isoformat(),
+            'complexity': complexity,
+            'categories': categories,
+            'cuisine': cuisine,
+            'tags': tags,
+            'metadata': metadata,
+            'nutrition': nutrition_data,
+            'image_url': image_url,
+            'nutrition_profiles': nutrition_profiles,
+            'raw_content': html_content[:5000]  # Store first 5000 chars
+        }
+        
+        return recipe
+        
+    except Exception as e:
+        logger.error(f"Error extracting recipe from {url}: {str(e)}")
+        return None
 
     def _extract_nutrition(self, soup):
         """Extract detailed nutrition information from the page"""
