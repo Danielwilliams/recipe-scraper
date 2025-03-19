@@ -11,9 +11,36 @@ class RecipeStorage:
     
     # database/recipe_storage.py - Update the save_recipe method to handle updating existing entries
 
+    def _validate_recipe(self, recipe):
+        """
+        Validate recipe has required fields and data
+        
+        Args:
+            recipe (dict): Recipe data
+            
+        Returns:
+            bool: True if recipe is valid, False otherwise
+        """
+        # Check required fields
+        if not recipe.get('title'):
+            logger.warning("Recipe missing title")
+            return False
+            
+        # Check ingredients
+        if not recipe.get('ingredients') or len(recipe.get('ingredients', [])) < 2:
+            logger.warning(f"Recipe '{recipe.get('title')}' has insufficient ingredients")
+            return False
+            
+        # Check instructions
+        if not recipe.get('instructions') or len(recipe.get('instructions', [])) < 2:
+            logger.warning(f"Recipe '{recipe.get('title')}' has insufficient instructions")
+            return False
+            
+        return True
+    
     def save_recipe(self, recipe):
         """
-        Save a recipe to the database
+        Save a recipe to the database with validation
         
         Args:
             recipe (dict): Recipe data
@@ -21,6 +48,11 @@ class RecipeStorage:
         Returns:
             int: Recipe ID if successful, None otherwise
         """
+        # Validate recipe before saving
+        if not self._validate_recipe(recipe):
+            logger.warning(f"Skipping invalid recipe: {recipe.get('title', 'Unknown')}")
+            return None
+            
         conn = get_db_connection()
         try:
             with conn.cursor() as cursor:
@@ -37,7 +69,7 @@ class RecipeStorage:
                     # Recipe exists - check if we need to update it
                     recipe_id = existing[0]
                     existing_image_url = existing[1]
-                    existing_instructions = existing[2] if isinstance(existing[2], list) else json.loads(existing[2])
+                    existing_instructions = existing[2] if isinstance(existing[2], list) else json.loads(existing[2]) if existing[2] else []
                     
                     # Get metadata fields for comparison
                     existing_prep_time = existing[3]
@@ -54,7 +86,7 @@ class RecipeStorage:
                         update_fields.append("image_url")
                     
                     # Check for improved instructions (more steps)
-                    if (len(recipe.get('instructions', [])) > len(existing_instructions)):
+                    if len(recipe.get('instructions', [])) > len(existing_instructions):
                         needs_update = True
                         update_fields.append("instructions")
                     
