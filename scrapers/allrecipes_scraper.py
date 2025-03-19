@@ -513,3 +513,107 @@ class AllRecipesScraper:
            return None
        except Exception:
            return None
+    def _extract_metadata(self, soup):
+        """
+        Extract metadata like prep time, cook time, servings from the HTML
+        
+        Args:
+            soup (BeautifulSoup): Parsed HTML
+            
+        Returns:
+            dict: Extracted metadata
+        """
+        metadata = {}
+        
+        try:
+            # Prep time
+            prep_time_elem = soup.select_one('[data-testid="prep-time"]')
+            if prep_time_elem:
+                prep_time_text = prep_time_elem.text.strip()
+                prep_time_match = re.search(r'(\d+)', prep_time_text)
+                if prep_time_match:
+                    metadata['prep_time'] = int(prep_time_match.group(1))
+            
+            # Cook time
+            cook_time_elem = soup.select_one('[data-testid="cook-time"]')
+            if cook_time_elem:
+                cook_time_text = cook_time_elem.text.strip()
+                cook_time_match = re.search(r'(\d+)', cook_time_text)
+                if cook_time_match:
+                    metadata['cook_time'] = int(cook_time_match.group(1))
+            
+            # Total time
+            total_time_elem = soup.select_one('[data-testid="total-time"]')
+            if total_time_elem:
+                total_time_text = total_time_elem.text.strip()
+                total_time_match = re.search(r'(\d+)', total_time_text)
+                if total_time_match:
+                    metadata['total_time'] = int(total_time_match.group(1))
+            
+            # Servings
+            servings_elem = soup.select_one('[data-testid="recipe-servings"]')
+            if servings_elem:
+                servings_text = servings_elem.text.strip()
+                servings_match = re.search(r'(\d+)', servings_text)
+                if servings_match:
+                    metadata['servings'] = int(servings_match.group(1))
+            
+            # Additional metadata elements
+            details_elems = soup.select('.recipe-meta-item')
+            for elem in details_elems:
+                label_elem = elem.select_one('.recipe-meta-item-header')
+                value_elem = elem.select_one('.recipe-meta-item-body')
+                
+                if label_elem and value_elem:
+                    label = label_elem.text.strip().lower().rstrip(':')
+                    value = value_elem.text.strip()
+                    
+                    if 'prep' in label:
+                        time_match = self._parse_time_text(value)
+                        if time_match:
+                            metadata['prep_time'] = time_match
+                    elif 'cook' in label:
+                        time_match = self._parse_time_text(value)
+                        if time_match:
+                            metadata['cook_time'] = time_match
+                    elif 'total' in label:
+                        time_match = self._parse_time_text(value)
+                        if time_match:
+                            metadata['total_time'] = time_match
+                    elif 'servings' in label or 'yield' in label:
+                        servings_match = re.search(r'(\d+)', value)
+                        if servings_match:
+                            metadata['servings'] = int(servings_match.group(1))
+            
+            return metadata
+        
+        except Exception as e:
+            logger.error(f"Error extracting metadata: {str(e)}")
+            return metadata 
+
+    def _parse_time_text(self, time_text):
+        """
+        Parse time text like "30 mins" or "1 hr 15 mins" into minutes
+        
+        Args:
+            time_text (str): Time text to parse
+            
+        Returns:
+            int: Time in minutes or None if parsing fails
+        """
+        if not time_text:
+            return None
+        
+        total_minutes = 0
+        
+        # Look for hours
+        hr_match = re.search(r'(\d+)\s*(?:hour|hr)s?', time_text, re.IGNORECASE)
+        if hr_match:
+            total_minutes += int(hr_match.group(1)) * 60
+        
+        # Look for minutes
+        min_match = re.search(r'(\d+)\s*(?:minute|min)s?', time_text, re.IGNORECASE)
+        if min_match:
+            total_minutes += int(min_match.group(1))
+        
+        return total_minutes if total_minutes > 0 else None
