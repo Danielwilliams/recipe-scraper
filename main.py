@@ -20,6 +20,111 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def update_image_urls():
+    """
+    Update missing image URLs for existing recipes in the database
+    """
+    try:
+        logger.info("Starting bulk image URL update process")
+        
+        # Connect to database
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Find recipes with missing image URLs
+        cursor.execute("""
+            SELECT id, title, source, source_url 
+            FROM scraped_recipes 
+            WHERE image_url IS NULL OR image_url = ''
+            ORDER BY date_scraped DESC
+        """)
+        
+        recipes_to_update = cursor.fetchall()
+        logger.info(f"Found {len(recipes_to_update)} recipes with missing image URLs")
+        
+        if not recipes_to_update:
+            logger.info("No recipes need updating. Exiting.")
+            return
+        
+        # Group recipes by source for more efficient processing
+        recipes_by_source = {}
+        for recipe in recipes_to_update:
+            source = recipe['source']
+            if source not in recipes_by_source:
+                recipes_by_source[source] = []
+            recipes_by_source[source].append(recipe)
+        
+        # Initialize scrapers
+        scrapers = {
+            'AllRecipes': AllRecipesScraper(),
+            'EatingWell': EatingWellScraper(),
+            'Food Network': FoodNetworkScraper(),
+            'Epicurious': EpicuriousScraper()
+        }
+        
+        storage = RecipeStorage()
+        updated_count = 0
+        failed_count = 0
+        
+        # Process each source
+        for source, recipes in recipes_by_source.items():
+            if source in scrapers:
+                logger.info(f"Processing {len(recipes)} recipes from {source}")
+                scraper = scrapers[source]
+                
+                for recipe in recipes:
+                    try:
+                        url = recipe['source_url']
+                        logger.info(f"Updating recipe: {recipe['title']} ({url})")
+                        
+                        # Request the page
+                        import requests
+                        response = requests.get(url, headers=scraper.headers, timeout=30)
+                        
+                        if response.status_code != 200:
+                            logger.error(f"Failed to access URL: {url}, Status: {response.status_code}")
+                            failed_count += 1
+                            continue
+                        
+                        # Extract recipe info with updated code
+                        updated_info = scraper._extract_recipe_info(response.text, url)
+                        
+                        if updated_info and updated_info.get('image_url'):
+                            # Update the database
+                            cursor.execute("""
+                                UPDATE scraped_recipes 
+                                SET image_url = %s 
+                                WHERE id = %s
+                            """, (updated_info['image_url'], recipe['id']))
+                            
+                            conn.commit()
+                            updated_count += 1
+                            logger.info(f"Updated image URL for recipe ID {recipe['id']}: {updated_info['image_url']}")
+                        else:
+                            logger.warning(f"Could not extract image URL for recipe ID {recipe['id']}")
+                            failed_count += 1
+                        
+                        # Be polite to the servers
+                        import time
+                        time.sleep(2)
+                    
+                    except Exception as e:
+                        conn.rollback()
+                        logger.error(f"Error updating recipe ID {recipe['id']}: {str(e)}")
+                        failed_count += 1
+            else:
+                logger.warning(f"No scraper available for source: {source}")
+                failed_count += len(recipes)
+        
+        logger.info(f"Update complete. Updated: {updated_count}, Failed: {failed_count}")
+        
+    except Exception as e:
+        logger.error(f"Unexpected error in update_image_urls: {str(e)}")
+        logger.error(traceback.format_exc())
+    finally:
+        cursor.close()
+        conn.close()
+
 def main():
     """Main entry point for the recipe scraper"""
     try:
@@ -31,8 +136,15 @@ def main():
                             default='websites', help='Source to scrape (default: websites)')
         parser.add_argument('--limit', type=int, default=50,
                             help='Maximum number of recipes to scrape per source (default: 50)')
+        parser.add_argument('--update-images', action='store_true', 
+                            help='Update missing image URLs for existing recipes')
         
         args = parser.parse_args()
+        
+        # If --update-images flag is provided, run update on existing recipes
+        if args.update_images:
+            update_image_urls()
+            return
         
         # Determine which scrapers to use
         scrapers = []
@@ -63,10 +175,12 @@ def main():
                 # Save recipes to database
                 storage = RecipeStorage()
                 saved_count = 0
+                updated_count = 0
                 
                 for recipe in recipes:
                     try:
-                        if storage.save_recipe(recipe):
+                        result = storage.save_recipe(recipe)
+                        if result:
                             saved_count += 1
                     except Exception as e:
                         logger.error(f"Error saving {scraper_name} recipe: {str(e)}")

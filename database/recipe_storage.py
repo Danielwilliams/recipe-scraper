@@ -9,6 +9,8 @@ logger = logging.getLogger(__name__)
 class RecipeStorage:
     """Store processed recipes in the database"""
     
+    # database/recipe_storage.py - Update the save_recipe method to handle updating existing entries
+
     def save_recipe(self, recipe):
         """
         Save a recipe to the database
@@ -24,34 +26,104 @@ class RecipeStorage:
             with conn.cursor() as cursor:
                 # Check if recipe already exists
                 cursor.execute("""
-                    SELECT id FROM scraped_recipes
+                    SELECT id, image_url, instructions, prep_time, cook_time, servings 
+                    FROM scraped_recipes
                     WHERE title = %s AND source = %s
                     LIMIT 1
                 """, (recipe['title'], recipe['source']))
                 
                 existing = cursor.fetchone()
                 if existing:
-                    logger.info(f"Recipe already exists: {recipe['title']}")
-                    return existing[0]
+                    # Recipe exists - check if we need to update it
+                    recipe_id = existing[0]
+                    existing_image_url = existing[1]
+                    existing_instructions = existing[2] if isinstance(existing[2], list) else json.loads(existing[2])
+                    
+                    # Get metadata fields for comparison
+                    existing_prep_time = existing[3]
+                    existing_cook_time = existing[4]
+                    existing_servings = existing[5]
+                    
+                    # Flag to track if we need to update
+                    needs_update = False
+                    update_fields = []
+                    
+                    # Check for missing image URL
+                    if not existing_image_url and recipe.get('image_url'):
+                        needs_update = True
+                        update_fields.append("image_url")
+                    
+                    # Check for improved instructions (more steps)
+                    if (len(recipe.get('instructions', [])) > len(existing_instructions)):
+                        needs_update = True
+                        update_fields.append("instructions")
+                    
+                    # Check for added metadata
+                    metadata = recipe.get('metadata', {})
+                    new_metadata = {}
+                    
+                    if not existing_prep_time and metadata.get('prep_time'):
+                        new_metadata['prep_time'] = metadata.get('prep_time')
+                        needs_update = True
+                        update_fields.append("prep_time")
+                    
+                    if not existing_cook_time and metadata.get('cook_time'):
+                        new_metadata['cook_time'] = metadata.get('cook_time')
+                        needs_update = True
+                        update_fields.append("cook_time")
+                    
+                    if not existing_servings and metadata.get('servings'):
+                        new_metadata['servings'] = metadata.get('servings')
+                        needs_update = True
+                        update_fields.append("servings")
+                    
+                    if needs_update:
+                        # Build the update SQL dynamically
+                        update_sql = "UPDATE scraped_recipes SET "
+                        params = []
+                        
+                        if "image_url" in update_fields:
+                            update_sql += "image_url = %s, "
+                            params.append(recipe.get('image_url'))
+                        
+                        if "instructions" in update_fields:
+                            update_sql += "instructions = %s, "
+                            params.append(json.dumps(recipe.get('instructions')))
+                        
+                        if "prep_time" in update_fields:
+                            update_sql += "prep_time = %s, "
+                            params.append(metadata.get('prep_time'))
+                        
+                        if "cook_time" in update_fields:
+                            update_sql += "cook_time = %s, "
+                            params.append(metadata.get('cook_time'))
+                        
+                        if "servings" in update_fields:
+                            update_sql += "servings = %s, "
+                            params.append(metadata.get('servings'))
+                        
+                        # Remove trailing comma and add WHERE clause
+                        update_sql = update_sql.rstrip(", ") + " WHERE id = %s"
+                        params.append(recipe_id)
+                        
+                        # Execute the update
+                        cursor.execute(update_sql, params)
+                        conn.commit()
+                        
+                        logger.info(f"Updated recipe '{recipe['title']}' (ID: {recipe_id}) with new data: {', '.join(update_fields)}")
+                    else:
+                        logger.info(f"Recipe already exists and no updates needed: {recipe['title']}")
+                    
+                    return recipe_id
                 
-                # Extract metadata fields for logging and clarity
-                metadata = recipe.get('metadata', {})
-                prep_time = metadata.get('prep_time')
-                cook_time = metadata.get('cook_time')
-                total_time = metadata.get('total_time')
-                servings = metadata.get('servings')
-                
-                # Log the extracted times
-                logger.info(f"Saving recipe '{recipe['title']}' with prep_time={prep_time}, cook_time={cook_time}")
-                
-                # Insert recipe
+                # Recipe doesn't exist - insert it
                 cursor.execute("""
                     INSERT INTO scraped_recipes (
                         title, source, source_url, instructions, date_scraped, date_processed,
                         complexity, prep_time, cook_time, total_time, servings, cuisine,
-                        is_verified, raw_content, metadata
+                        is_verified, raw_content, metadata, image_url, categories
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     ) RETURNING id
                 """, (
                     recipe['title'],
@@ -61,14 +133,16 @@ class RecipeStorage:
                     datetime.now(),
                     datetime.now(),
                     recipe['complexity'],
-                    prep_time,  # Using variables instead of nested dict access
-                    cook_time,
-                    total_time,
-                    servings,
-                    metadata.get('cuisine'),
+                    recipe['metadata'].get('prep_time'),
+                    recipe['metadata'].get('cook_time'),
+                    recipe['metadata'].get('total_time'),
+                    recipe['metadata'].get('servings'),
+                    recipe.get('cuisine'),
                     False,  # Not verified initially
-                    recipe.get('raw_content', '')[:1000],  # Limit raw content size
-                    json.dumps(metadata)
+                    recipe.get('raw_content', '')[:5000],  # Limit raw content size
+                    json.dumps(recipe['metadata']),
+                    recipe.get('image_url'),
+                    json.dumps(recipe.get('categories', []))
                 ))
                 
                 recipe_id = cursor.fetchone()[0]

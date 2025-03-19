@@ -4,6 +4,7 @@ import time
 import logging
 import re
 import random
+import json
 from datetime import datetime
 from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
@@ -231,249 +232,7 @@ class EatingWellScraper:
         
         logger.info(f"Total recipes scraped: {len(recipes)}")
         return recipes
-
-# Update for EatingWellScraper - Better Image Extraction
-
-def _extract_recipe_info(self, html_content, url):
-    """Extract structured recipe information from HTML"""
-    soup = BeautifulSoup(html_content, 'lxml')
     
-    try:
-        # Extract title
-        title_elem = soup.select_one('h1.article-heading')
-        title = title_elem.text.strip() if title_elem else "Untitled Recipe"
-        
-        # Extract ingredients
-        ingredients = []
-        ingredient_items = soup.select('.mm-recipes-structured-ingredients__list-item')
-        
-        for item in ingredient_items:
-            quantity = item.select_one('[data-ingredient-quantity="true"]')
-            unit = item.select_one('[data-ingredient-unit="true"]')
-            name = item.select_one('[data-ingredient-name="true"]')
-            
-            ingredient_text = ""
-            if quantity:
-                ingredient_text += quantity.text.strip() + " "
-            if unit:
-                ingredient_text += unit.text.strip() + " "
-            if name:
-                ingredient_text += name.text.strip()
-            
-            if ingredient_text.strip():
-                ingredients.append(ingredient_text.strip())
-        
-        # Extract instructions
-        instructions = []
-        instruction_items = soup.select('.mm-recipes-steps .mntl-sc-block-group--LI p')
-        
-        for item in instruction_items:
-            step = item.text.strip()
-            if step:
-                instructions.append(step)
-        
-        # Extract metadata
-        metadata = {}
-        
-        # Time details
-        time_details = soup.select('.mm-recipes-details__item')
-        for detail in time_details:
-            label_elem = detail.select_one('.mm-recipes-details__label')
-            value_elem = detail.select_one('.mm-recipes-details__value')
-            
-            if label_elem and value_elem:
-                label = label_elem.text.strip().lower()
-                value = value_elem.text.strip()
-                
-                time_match = re.search(r'(\d+)\s*(mins?|hrs?)?', value, re.IGNORECASE)
-                if time_match:
-                    time_value = int(time_match.group(1))
-                    time_unit = time_match.group(2) or 'mins'
-                    
-                    if 'hr' in time_unit.lower():
-                        time_value *= 60
-                    
-                    if 'prep time' in label:
-                        metadata['prep_time'] = time_value
-                    elif 'cook time' in label:
-                        metadata['cook_time'] = time_value
-                    elif 'total time' in label:
-                        metadata['total_time'] = time_value
-                
-                # Servings
-                if 'servings' in label:
-                    servings_match = re.search(r'(\d+)', value)
-                    if servings_match:
-                        metadata['servings'] = int(servings_match.group(1))
-        
-        # Extract nutrition information
-        nutrition_data = self._extract_nutrition(soup)
-        
-        # Extract nutrition profiles
-        nutrition_profiles = []
-        profile_container = soup.select_one('.mm-recipes-details__nutrition-profile')
-        if profile_container:
-            profile_elems = profile_container.select('.mm-recipes-details__nutrition-profile-item')
-            for profile in profile_elems:
-                profile_text = profile.text.strip()
-                if profile_text:
-                    nutrition_profiles.append(profile_text)
-            
-            logger.info(f"Extracted nutrition profiles: {nutrition_profiles}")
-        
-        # Determine complexity
-        complexity = "easy"
-        if len(ingredients) >= 10 or len(instructions) >= 7:
-            complexity = "complex"
-        elif len(ingredients) >= 6 or len(instructions) >= 4:
-            complexity = "medium"
-        
-        # Breadcrumb for category/cuisine
-        categories = []
-        breadcrumbs = soup.select('.mntl-breadcrumbs__link')
-        for crumb in breadcrumbs:
-            crumb_text = crumb.text.strip()
-            if crumb_text and crumb_text.lower() not in ['home', 'recipes']:
-                categories.append(crumb_text)
-        
-        # Infer cuisine
-        cuisine = None
-        for crumb in categories:
-            known_cuisines = ['Italian', 'Mexican', 'Chinese','Indian', 
-                            'Japanese', 'Thai', 'French', 'Greek', 
-                            'Mediterranean', 'Spanish', 'Korean', 'Vietnamese']
-            if crumb in known_cuisines:
-                cuisine = crumb
-                break
-        
-        # Generate tags
-        tags = []
-        tags.extend(nutrition_profiles)
-        tags.append(complexity + ' recipe')
-        
-        # UPDATED: Enhanced image URL extraction with multiple fallbacks
-        image_url = None
-        
-        # Try primary image
-        image_elem = soup.select_one('.primary-image__image')
-        if image_elem:
-            image_url = image_elem.get('src')
-        
-        # Try universal image
-        if not image_url:
-            image_elem = soup.select_one('.universal-image__image')
-            if image_elem:
-                image_url = image_elem.get('src') or image_elem.get('data-src')
-        
-        # Try figure image
-        if not image_url:
-            image_elem = soup.select_one('figure.primary-media img')
-            if image_elem:
-                image_url = image_elem.get('src') or image_elem.get('data-src')
-        
-        # Try structured data
-        if not image_url:
-            for script in soup.find_all('script', {'type': 'application/ld+json'}):
-                try:
-                    json_data = json.loads(script.string)
-                    if isinstance(json_data, dict) and '@type' in json_data and json_data['@type'] == 'Recipe':
-                        if 'image' in json_data:
-                            image_data = json_data['image']
-                            if isinstance(image_data, list):
-                                image_url = image_data[0] if image_data else None
-                            else:
-                                image_url = image_data
-                            break
-                except:
-                    continue
-        
-        # Try OG image as final fallback
-        if not image_url:
-            og_image = soup.find('meta', {'property': 'og:image'})
-            if og_image:
-                image_url = og_image.get('content')
-        
-        # Construct recipe dictionary
-        recipe = {
-            'title': title,
-            'ingredients': ingredients,
-            'instructions': instructions,
-            'source': 'EatingWell',
-            'source_url': url,
-            'date_scraped': datetime.now().isoformat(),
-            'complexity': complexity,
-            'categories': categories,
-            'cuisine': cuisine,
-            'tags': tags,
-            'metadata': metadata,
-            'nutrition': nutrition_data,
-            'image_url': image_url,
-            'nutrition_profiles': nutrition_profiles,
-            'raw_content': html_content[:5000]  # Store first 5000 chars
-        }
-        
-        return recipe
-        
-    except Exception as e:
-        logger.error(f"Error extracting recipe from {url}: {str(e)}")
-        return None
-
-    def _extract_nutrition(self, soup):
-        """Extract detailed nutrition information from the page"""
-        try:
-            # Find the nutrition callout section
-            nutrition_callout = soup.select_one('.mntl-sc-block-universal-callout__body')
-            
-            if not nutrition_callout:
-                return None
-            
-            # Extract nutrition text
-            nutrition_text = nutrition_callout.get_text(strip=True)
-            
-            # Parse the nutrition information
-            nutrition_data = {
-                'calories': None,
-                'fat': None,
-                'saturated_fat': None,
-                'cholesterol': None,
-                'carbs': None,
-                'total_sugars': None,
-                'added_sugars': None,
-                'protein': None,
-                'fiber': None,
-                'sodium': None,
-                'potassium': None
-            }
-            
-            # Extract values using regex
-            nutrition_mapping = {
-                'calories': r'Calories\s*(\d+)',
-                'fat': r'Fat\s*(\d+)g',
-                'saturated_fat': r'Saturated Fat\s*(\d+)g',
-                'cholesterol': r'Cholesterol\s*(\d+)mg',
-                'carbs': r'Carbohydrates\s*(\d+)g',
-                'total_sugars': r'Total Sugars\s*(\d+)g',
-                'added_sugars': r'Added Sugars\s*(\d+)g',
-                'protein': r'Protein\s*(\d+)g',
-                'fiber': r'Fiber\s*(\d+)g',
-                'sodium': r'Sodium\s*(\d+)mg',
-                'potassium': r'Potassium\s*(\d+)mg'
-            }
-            
-            for key, pattern in nutrition_mapping.items():
-                match = re.search(pattern, nutrition_text, re.IGNORECASE)
-                if match:
-                    # Convert to float, defaulting to None if conversion fails
-                    try:
-                        nutrition_data[key] = float(match.group(1))
-                    except (ValueError, TypeError):
-                        nutrition_data[key] = None
-            
-            return nutrition_data
-        
-        except Exception as e:
-            logger.error(f"Error extracting nutrition info: {str(e)}")
-            return None
     def _extract_recipe_info(self, html_content, url):
         """Extract structured recipe information from HTML"""
         soup = BeautifulSoup(html_content, 'lxml')
@@ -625,6 +384,22 @@ def _extract_recipe_info(self, html_content, url):
                 image_elem = soup.select_one('figure.primary-media img')
                 if image_elem:
                     image_url = image_elem.get('src') or image_elem.get('data-src')
+            
+            # Try structured data
+            if not image_url:
+                for script in soup.find_all('script', {'type': 'application/ld+json'}):
+                    try:
+                        json_data = json.loads(script.string)
+                        if isinstance(json_data, dict) and '@type' in json_data and json_data['@type'] == 'Recipe':
+                            if 'image' in json_data:
+                                image_data = json_data['image']
+                                if isinstance(image_data, list):
+                                    image_url = image_data[0] if image_data else None
+                                else:
+                                    image_url = image_data
+                                break
+                    except:
+                        continue
             
             # Try OG image as final fallback
             if not image_url:
