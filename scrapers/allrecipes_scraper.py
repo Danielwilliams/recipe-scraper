@@ -497,19 +497,19 @@ class AllRecipesScraper:
             logger.error(f"Error extracting recipe from HTML: {str(e)}")
             return None
 
-     def _parse_iso_duration(self, iso_duration):
-        """Parse ISO 8601 duration to minutes"""
-        if not iso_duration:
-            return None
-        
-        try:
-            # Handle PT1H30M format (ISO 8601 duration)
-            match = re.search(r'PT(?:(\d+)H)?(?:(\d+)M)?', iso_duration)
-            if match:
-                hours = int(match.group(1) or 0)
-                minutes = int(match.group(2) or 0)
-                return hours * 60 + minutes
-            
-            return None
-        except Exception:
-            return None
+    def _parse_iso_duration(self, iso_duration):
+       """Parse ISO 8601 duration to minutes"""
+       if not iso_duration:
+           return None
+       
+       try:
+           # Handle PT1H30M format (ISO 8601 duration)
+           match = re.search(r'PT(?:(\d+)H)?(?:(\d+)M)?', iso_duration)
+           if match:
+               hours = int(match.group(1) or 0)
+               minutes = int(match.group(2) or 0)
+               return hours * 60 + minutes
+           
+           return None
+       except Exception:
+           return None
