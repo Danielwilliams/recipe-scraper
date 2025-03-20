@@ -1,9 +1,9 @@
 name: Recipe Scraper
 
 on:
-  workflow_dispatch:  # Allows manual triggering
+  workflow_dispatch:
   schedule:
-    - cron: '0 2 * * 0'  # Runs weekly on Sunday at 2 AM UTC
+    - cron: '0 2 * * 0'
 
 jobs:
   scrape:
@@ -23,6 +23,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           python -m spacy download en_core_web_sm
+      
+      - name: Verify installed versions
+        run: |
+          echo "Installed package versions:"
+          pip list | grep -E "requests|beautifulsoup4|cloudscraper|lxml|spacy|psycopg2-binary|python-dotenv"
       
       - name: Test secret access
         env:
@@ -55,7 +60,7 @@ jobs:
       
       - name: Upload logs and debug files
         if: always()
-        uses: actions/upload-artifact@v4  # Updated to v4
+        uses: actions/upload-artifact@v4
         with:
           name: scraper-logs
           path: |
@@ -63,7 +68,7 @@ jobs:
             foodnetwork_error_response_*.html
             foodnetwork_debug_page_*.html
             data/recipe_cache/*.html
-          if-no-files-found: warn  # Prevents failure if no files are found
+          if-no-files-found: warn
       
       - name: Commit and push changes
         if: always()

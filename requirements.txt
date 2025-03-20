@@ -1,11 +1,11 @@
-requests==2.31.0
-beautifulsoup4==4.12.2
-lxml==4.9.3
+requests==2.32.3
+beautifulsoup4==4.12.3
+lxml==5.2.2
 psycopg2-binary==2.9.9
-python-dotenv==1.0.0
+python-dotenv==1.0.1
 facebook-sdk==3.1.0
 tqdm==4.66.1
-spacy==3.7.2
-cloudscraper>=1.2.0
+spacy==3.7.4
+cloudscraper>=1.2.71
 selenium>=4.0.0
 webdriver-manager>=3.0.0
