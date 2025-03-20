@@ -379,19 +379,17 @@ class AllRecipesScraper:
                     if img_tag:
                         image_url = img_tag.get('src') or img_tag.get('data-src')
             
+            # Return the parsed recipe data
             return {
                 'title': title,
                 'ingredients': ingredients,
-                ': instructions,
+                'instructions': instructions,
                 'source': 'AllRecipes',
                 'source_url': url,
                 'date_scraped': datetime.now().isoformat(),
                 'complexity': complexity,
-                'tags': tags,
-                'categories': categories,
                 'metadata': metadata,
-                'image_url': image_url,  # Added image URL
-                'raw_content': html_content[:1000]  # Store just a portion to save space
+                'raw_content': ''  # Placeholder, full content can be added if needed
             }
             
         except json.JSONDecodeError as e:
