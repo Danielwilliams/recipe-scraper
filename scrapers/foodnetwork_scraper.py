@@ -270,9 +270,11 @@ class FoodNetworkScraper:
         try:
             soup = BeautifulSoup(html_content, 'lxml')
             
+            # Extract title
             title_elem = soup.select_one('h1.o-AssetTitle__a-Headline, h1.recipe-title')
             title = title_elem.text.strip() if title_elem else "Untitled Recipe"
             
+            # Extract ingredients
             ingredients = []
             ingredient_elements = soup.select('.o-Ingredients__a-Ingredient--CheckboxLabel, .ingredients-item-name')
             for elem in ingredient_elements:
@@ -284,6 +286,7 @@ class FoodNetworkScraper:
             for header in section_headers:
                 ingredients.append(header.text.strip())
             
+            # Extract instructions
             instructions = []
             instruction_elements = soup.select('.o-Method__m-Step, .recipe-directions__list--item')
             for elem in instruction_elements:
@@ -306,6 +309,7 @@ class FoodNetworkScraper:
                 logger.info(f"Skipping recipe {url} - not enough data extracted")
                 return None
             
+            # Extract complexity (Level)
             complexity = None
             level_elem = soup.select_one('.o-RecipeInfo__a-Description, .recipe-level')
             if level_elem:
@@ -325,6 +329,37 @@ class FoodNetworkScraper:
                 else:
                     complexity = 'medium'
             
+            # Extract metadata (prep time, cook time, total time, servings)
+            metadata = {}
+            
+            # Time details
+            time_elements = soup.select('.o-RecipeInfo__m-Time .o-RecipeInfo__a-Description')
+            for elem in time_elements:
+                label = elem.find_previous_sibling('dt')
+                if label:
+                    label_text = label.text.strip().lower()
+                    value_text = elem.text.strip()
+                    time_match = re.search(r'(\d+)\s*(?:hr|hour|min|minute)s?', value_text, re.IGNORECASE)
+                    if time_match:
+                        time_value = int(time_match.group(1))
+                        unit = time_match.group(2).lower()
+                        if 'hr' in unit or 'hour' in unit:
+                            time_value *= 60
+                        if 'prep' in label_text:
+                            metadata['prep_time'] = time_value
+                        elif 'cook' in label_text:
+                            metadata['cook_time'] = time_value
+                        elif 'total' in label_text:
+                            metadata['total_time'] = time_value
+            
+            # Servings
+            servings_elem = soup.select_one('.o-RecipeInfo__a-Description--Yield, .recipe-yield')
+            if servings_elem:
+                servings_text = servings_elem.text.strip()
+                servings_match = re.search(r'(\d+)', servings_text)
+                if servings_match:
+                    metadata['servings'] = int(servings_match.group(1))
+            
             recipe = {
                 'title': title,
                 'ingredients': ingredients,
@@ -333,6 +368,7 @@ class FoodNetworkScraper:
                 'source_url': url,
                 'date_scraped': datetime.now().isoformat(),
                 'complexity': complexity,
+                'metadata': metadata,  # Add metadata field
             }
             
             return recipe
