@@ -114,8 +114,16 @@ def update_recipe(recipe_data, scrapers):
     scraper = scrapers[source]
     
     try:
+        # Get headers dynamically (handle both old and new scraper designs)
+        headers = getattr(scraper, 'headers', None)
+        if headers is None and hasattr(scraper, '_get_headers'):
+            headers = scraper._get_headers()
+        if headers is None:
+            logger.error(f"Scraper for {source} has no headers or _get_headers method")
+            return False
+        
         # Request the page
-        response = requests.get(url, headers=scraper.headers, timeout=30)
+        response = requests.get(url, headers=headers, timeout=30)
         
         if response.status_code != 200:
             logger.error(f"Failed to access URL: {url}, Status: {response.status_code}")
