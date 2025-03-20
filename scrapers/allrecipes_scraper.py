@@ -5,6 +5,10 @@ import re
 import json
 from datetime import datetime
 from bs4 import BeautifulSoup
+import traceback
+
+# Import database connection from your existing db_connector
+from database.db_connector import get_db_connection
 
 # Configure logging
 logging.basicConfig(
@@ -45,69 +49,58 @@ class AllRecipesScraper:
         
         logger.info(f"Initialized with {len(self.category_urls)} category URLs")
 
-    def _extract_nutrition(self, soup):
+    def _parse_iso_duration(self, iso_duration):
         """
-        Extract detailed nutrition information from the page
+        Parse ISO 8601 duration to minutes
+
+        Args:
+            iso_duration (str): ISO 8601 duration string
+
+        Returns:
+            int: Duration in minutes or None
+        """
+        if not iso_duration:
+            return None
+        
+        try:
+            # Handle PT1H30M format (ISO 8601 duration)
+            match = re.search(r'PT(?:(\d+)H)?(?:(\d+)M)?', iso_duration)
+            if match:
+                hours = int(match.group(1) or 0)
+                minutes = int(match.group(2) or 0)
+                return hours * 60 + minutes
+            
+            return None
+        except Exception as e:
+            logger.error(f"Error parsing ISO duration {iso_duration}: {str(e)}")
+            return None
+
+    def _parse_time_text(self, time_text):
+        """
+        Parse time text like "30 mins" or "1 hr 15 mins" into minutes
         
         Args:
-            soup (BeautifulSoup): Parsed HTML content
+            time_text (str): Time text to parse
             
         Returns:
-            dict: Nutrition information
+            int: Time in minutes or None if parsing fails
         """
-        try:
-            # Find the nutrition facts table
-            nutrition_table = soup.select_one('.mm-recipes-nutrition-facts-summary__table')
-            
-            if not nutrition_table:
-                return None
-            
-            # Initialize nutrition data dictionary
-            nutrition_data = {
-                'calories': None,
-                'fat': None,
-                'carbs': None,
-                'protein': None,
-                # Add other fields that might be common
-                'saturated_fat': None,
-                'cholesterol': None,
-                'sodium': None,
-                'fiber': None,
-                'sugars': None
-            }
-            
-            # Extract nutrition values from table rows
-            rows = nutrition_table.select('.mm-recipes-nutrition-facts-summary__table-row')
-            for row in rows:
-                value_cell = row.select_one('.mm-recipes-nutrition-facts-summary__table-cell.text-body-100-prominent')
-                label_cell = row.select_one('.mm-recipes-nutrition-facts-summary__table-cell.text-body-100')
-                
-                if value_cell and label_cell:
-                    value = value_cell.text.strip().rstrip('g ')
-                    label = label_cell.text.strip().lower()
-                    
-                    try:
-                        # Convert to float, removing any non-numeric characters
-                        numeric_value = float(value)
-                        
-                        # Map labels to nutrition keys
-                        if 'calories' in label:
-                            nutrition_data['calories'] = numeric_value
-                        elif 'fat' in label:
-                            nutrition_data['fat'] = numeric_value
-                        elif 'carbs' in label:
-                            nutrition_data['carbs'] = numeric_value
-                        elif 'protein' in label:
-                            nutrition_data['protein'] = numeric_value
-                    except (ValueError, TypeError):
-                        pass  # Skip if conversion fails
-            
-            logger.info(f"Extracted nutrition data: {nutrition_data}")
-            return nutrition_data
-        
-        except Exception as e:
-            logger.error(f"Error extracting nutrition info: {str(e)}")
+        if not time_text:
             return None
+        
+        total_minutes = 0
+        
+        # Look for hours
+        hr_match = re.search(r'(\d+)\s*(?:hour|hr)s?', time_text, re.IGNORECASE)
+        if hr_match:
+            total_minutes += int(hr_match.group(1)) * 60
+        
+        # Look for minutes
+        min_match = re.search(r'(\d+)\s*(?:minute|min)s?', time_text, re.IGNORECASE)
+        if min_match:
+            total_minutes += int(min_match.group(1))
+        
+        return total_minutes if total_minutes > 0 else None
 
     def scrape(self, limit=100):
         """
@@ -200,12 +193,14 @@ class AllRecipesScraper:
                         
                     except Exception as e:
                         logger.error(f"Error scraping recipe {url}: {str(e)}")
+                        logger.error(traceback.format_exc())
                 
                 # Be polite between categories
                 time.sleep(5)
                 
             except Exception as e:
                 logger.error(f"Error scraping category page {category_url}: {str(e)}")
+                logger.error(traceback.format_exc())
         
         logger.info(f"Total recipes scraped: {len(recipes)}")
         return recipes
@@ -236,9 +231,8 @@ class AllRecipesScraper:
                 
         except Exception as e:
             logger.error(f"Error extracting recipe info from {url}: {str(e)}")
+            logger.error(traceback.format_exc())
             return None
-
-    # Update for AllRecipesScraper  
 
     def _extract_from_json_ld(self, soup, url):
         """
@@ -388,7 +382,7 @@ class AllRecipesScraper:
             return {
                 'title': title,
                 'ingredients': ingredients,
-                'instructions': instructions,
+                ': instructions,
                 'source': 'AllRecipes',
                 'source_url': url,
                 'date_scraped': datetime.now().isoformat(),
@@ -571,6 +565,7 @@ class AllRecipesScraper:
             
         except Exception as e:
             logger.error(f"Error extracting recipe from {url}: {str(e)}")
+            logger.error(traceback.format_exc())
             return None
     
     def _extract_nutrition(self, soup):
@@ -584,8 +579,8 @@ class AllRecipesScraper:
             dict: Nutrition information
         """
         try:
-            # Find the nutrition label table
-            nutrition_table = soup.select_one('.mm-recipes-nutrition-facts-label__table')
+            # Find the nutrition facts table
+            nutrition_table = soup.select_one('.mm-recipes-nutrition-facts-summary__table')
             
             if not nutrition_table:
                 return None
@@ -593,190 +588,60 @@ class AllRecipesScraper:
             # Initialize nutrition data dictionary
             nutrition_data = {
                 'calories': None,
-                'total_fat': None,
+                'fat': None,
+                'carbs': None,
+                'protein': None,
                 'saturated_fat': None,
                 'cholesterol': None,
                 'sodium': None,
-                'carbs': None,
                 'fiber': None,
-                'protein': None,
-                'potassium': None
+                'sugars': None
             }
             
             # Extract nutrition values from table rows
-            rows = nutrition_table.select('tbody tr')
-            
+            rows = nutrition_table.select('.mm-recipes-nutrition-facts-summary__table-row')
             for row in rows:
-                # Skip header rows
-                if 'mm-recipes-nutrition-facts-label__table-dv-row' in row.get('class', []):
-                    continue
+                value_cell = row.select_one('.mm-recipes-nutrition-facts-summary__table-cell.text-body-100-prominent')
+                label_cell = row.select_one('.mm-recipes-nutrition-facts-summary__table-cell.text-body-100')
                 
-                cells = row.select('td')
-                if len(cells) != 2:
-                    continue
-                
-                # Look for nutrient name and value
-                nutrient_name_elem = cells[0].select_one('.mm-recipes-nutrition-facts-label__nutrient-name')
-                
-                if not nutrient_name_elem:
-                    # If no specific name elem, use text of first cell
-                    nutrient_name = cells[0].get_text(strip=True).lower()
-                else:
-                    nutrient_name = nutrient_name_elem.get_text(strip=True).lower()
-                
-                # Extract numeric value from first cell
-                value_match = re.search(r'([\d.]+)([a-z]+)?', cells[0].get_text(strip=True), re.IGNORECASE)
-                
-                if value_match:
-                    value = float(value_match.group(1))
-                    unit = value_match.group(2) if value_match.group(2) else 'g'
+                if value_cell and label_cell:
+                    value = value_cell.text.strip().rstrip('g ')
+                    label = label_cell.text.strip().lower()
                     
-                    # Map nutrition names to standardized keys
-                    if 'calories' in nutrient_name:
-                        nutrition_data['calories'] = value
-                    elif 'total fat' in nutrient_name:
-                        nutrition_data['total_fat'] = value
-                    elif 'saturated fat' in nutrient_name:
-                        nutrition_data['saturated_fat'] = value
-                    elif 'cholesterol' in nutrient_name:
-                        nutrition_data['cholesterol'] = value
-                    elif 'sodium' in nutrient_name:
-                        nutrition_data['sodium'] = value
-                    elif 'total carbohydrate' in nutrient_name:
-                        nutrition_data['carbs'] = value
-                    elif 'dietary fiber' in nutrient_name:
-                        nutrition_data['fiber'] = value
-                    elif 'protein' in nutrient_name:
-                        nutrition_data['protein'] = value
-                    elif 'potassium' in nutrient_name:
-                        nutrition_data['potassium'] = value
+                    try:
+                        # Convert to float, removing any non-numeric characters
+                        numeric_value = float(value)
+                        
+                        # Map labels to nutrition keys
+                        if 'calories' in label:
+                            nutrition_data['calories'] = numeric_value
+                        elif 'fat' in label and 'saturated' not in label:
+                            nutrition_data['fat'] = numeric_value
+                        elif 'saturated fat' in label:
+                            nutrition_data['saturated_fat'] = numeric_value
+                        elif 'carbs' in label:
+                            nutrition_data['carbs'] = numeric_value
+                        elif 'protein' in label:
+                            nutrition_data['protein'] = numeric_value
+                        elif 'cholesterol' in label:
+                            nutrition_data['cholesterol'] = numeric_value
+                        elif 'sodium' in label:
+                            nutrition_data['sodium'] = numeric_value
+                        elif 'fiber' in label:
+                            nutrition_data['fiber'] = numeric_value
+                        elif 'sugars' in label:
+                            nutrition_data['sugars'] = numeric_value
+                    except (ValueError, TypeError):
+                        pass  # Skip if conversion fails
             
-            # Ensure only non-None values are returned
-            return {k: v for k, v in nutrition_data.items() if v is not None}
-
-    def _parse_iso_duration(self, iso_duration):
-        """Parse ISO 8601 duration to minutes"""
-        if not iso_duration:
-            return None
-        
-        try:
-            # Handle PT1H30M format (ISO 8601 duration)
-            match = re.search(r'PT(?:(\d+)H)?(?:(\d+)M)?', iso_duration)
-            if match:
-                hours = int(match.group(1) or 0)
-                minutes = int(match.group(2) or 0)
-                return hours * 60 + minutes
-            
-            return None
-        except Exception:
-            return None
-
-    def _extract_metadata(self, soup):
-        """
-        Extract metadata like prep time, cook time, servings from the HTML
-        
-        Args:
-            soup (BeautifulSoup): Parsed HTML
-            
-        Returns:
-            dict: Extracted metadata
-        """
-        metadata = {}
-        
-        try:
-            # Prep time
-            prep_time_elem = soup.select_one('[data-testid="prep-time"]')
-            if prep_time_elem:
-                prep_time_text = prep_time_elem.text.strip()
-                prep_time_match = re.search(r'(\d+)', prep_time_text)
-                if prep_time_match:
-                    metadata['prep_time'] = int(prep_time_match.group(1))
-            
-            # Cook time
-            cook_time_elem = soup.select_one('[data-testid="cook-time"]')
-            if cook_time_elem:
-                cook_time_text = cook_time_elem.text.strip()
-                cook_time_match = re.search(r'(\d+)', cook_time_text)
-                if cook_time_match:
-                    metadata['cook_time'] = int(cook_time_match.group(1))
-            
-            # Total time
-            total_time_elem = soup.select_one('[data-testid="total-time"]')
-            if total_time_elem:
-                total_time_text = total_time_elem.text.strip()
-                total_time_match = re.search(r'(\d+)', total_time_text)
-                if total_time_match:
-                    metadata['total_time'] = int(total_time_match.group(1))
-            
-            # Servings
-            servings_elem = soup.select_one('[data-testid="recipe-servings"]')
-            if servings_elem:
-                servings_text = servings_elem.text.strip()
-                servings_match = re.search(r'(\d+)', servings_text)
-                if servings_match:
-                    metadata['servings'] = int(servings_match.group(1))
-            
-            # Additional metadata elements
-            details_elems = soup.select('.recipe-meta-item')
-            for elem in details_elems:
-                label_elem = elem.select_one('.recipe-meta-item-header')
-                value_elem = elem.select_one('.recipe-meta-item-body')
-                
-                if label_elem and value_elem:
-                    label = label_elem.text.strip().lower().rstrip(':')
-                    value = value_elem.text.strip()
-                    
-                    if 'prep' in label:
-                        time_match = self._parse_time_text(value)
-                        if time_match:
-                            metadata['prep_time'] = time_match
-                    elif 'cook' in label:
-                        time_match = self._parse_time_text(value)
-                        if time_match:
-                            metadata['cook_time'] = time_match
-                    elif 'total' in label:
-                        time_match = self._parse_time_text(value)
-                        if time_match:
-                            metadata['total_time'] = time_match
-                    elif 'servings' in label or 'yield' in label:
-                        servings_match = re.search(r'(\d+)', value)
-                        if servings_match:
-                            metadata['servings'] = int(servings_match.group(1))
-            
-            return metadata
+            logger.info(f"Extracted nutrition data: {nutrition_data}")
+            return nutrition_data
         
         except Exception as e:
-            logger.error(f"Error extracting metadata: {str(e)}")
-            return metadata 
-
-    def _parse_time_text(self, time_text):
-        """
-        Parse time text like "30 mins" or "1 hr 15 mins" into minutes
-        
-        Args:
-            time_text (str): Time text to parse
-            
-        Returns:
-            int: Time in minutes or None if parsing fails
-        """
-        if not time_text:
+            logger.error(f"Error extracting nutrition info: {str(e)}")
             return None
-        
-        total_minutes = 0
-        
-        # Look for hours
-        hr_match = re.search(r'(\d+)\s*(?:hour|hr)s?', time_text, re.IGNORECASE)
-        if hr_match:
-            total_minutes += int(hr_match.group(1)) * 60
-        
-        # Look for minutes
-        min_match = re.search(r'(\d+)\s*(?:minute|min)s?', time_text, re.IGNORECASE)
-        if min_match:
-            total_minutes += int(min_match.group(1))
-        
-        return total_minutes if total_minutes > 0 else None
 
-     def save_recipe(self, recipe):
+    def save_recipe(self, recipe):
         """
         Save a recipe to the database
         
@@ -903,11 +768,11 @@ class AllRecipesScraper:
                         nutrition.get('calories'),
                         nutrition.get('protein'),
                         nutrition.get('carbs'),
-                        nutrition.get('total_fat'),
+                        nutrition.get('fat'),
                         nutrition.get('saturated_fat'),
                         nutrition.get('cholesterol'),
                         nutrition.get('sodium'),
-                        None,  # total_sugars not in current extraction
+                        nutrition.get('sugars'),
                         nutrition.get('fiber'),
                         nutrition.get('potassium'),
                         True
@@ -920,106 +785,12 @@ class AllRecipesScraper:
         except Exception as e:
             conn.rollback()
             logger.error(f"Error saving recipe '{recipe.get('title', 'Unknown')}': {str(e)}")
+            logger.error(traceback.format_exc())
             return None
         finally:
-            conn.close()    
-
-    @classmethod
-    def create_tables_if_not_exist(cls):
-        """Create necessary tables if they don't exist"""
-        conn = get_db_connection()
-        try:
-            with conn.cursor() as cursor:
-                # Create scraped_recipes table with additional fields
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS scraped_recipes (
-                        id SERIAL PRIMARY KEY,
-                        title VARCHAR(255) NOT NULL,
-                        source VARCHAR(100) NOT NULL,
-                        source_url TEXT,
-                        instructions JSONB NOT NULL,
-                        date_scraped TIMESTAMP NOT NULL,
-                        date_processed TIMESTAMP NOT NULL,
-                        complexity VARCHAR(20),
-                        prep_time INTEGER,
-                        cook_time INTEGER,
-                        total_time INTEGER,
-                        servings INTEGER,
-                        cuisine VARCHAR(50),
-                        is_verified BOOLEAN DEFAULT FALSE,
-                        raw_content TEXT,
-                        metadata JSONB,
-                        image_url TEXT,
-                        categories JSONB,
-                        tags TEXT[]
-                    );
-                """)
-                
-                # Create recipe_ingredients table
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS recipe_ingredients (
-                        id SERIAL PRIMARY KEY,
-                        recipe_id INTEGER REFERENCES scraped_recipes(id) ON DELETE CASCADE,
-                        name VARCHAR(100) NOT NULL,
-                        amount VARCHAR(50),
-                        unit VARCHAR(30),
-                        notes TEXT,
-                        category VARCHAR(50),
-                        is_main_ingredient BOOLEAN DEFAULT FALSE
-                    );
-                """)
-                
-                # Create recipe_tags table
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS recipe_tags (
-                        id SERIAL PRIMARY KEY,
-                        recipe_id INTEGER REFERENCES scraped_recipes(id) ON DELETE CASCADE,
-                        tag VARCHAR(50) NOT NULL
-                    );
-                """)
-                
-                # Create recipe_nutrition table with more comprehensive fields
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS recipe_nutrition (
-                        id SERIAL PRIMARY KEY,
-                        recipe_id INTEGER REFERENCES scraped_recipes(id) ON DELETE CASCADE,
-                        calories INTEGER,
-                        protein REAL,
-                        carbs REAL,
-                        fat REAL,
-                        saturated_fat REAL,
-                        cholesterol REAL,
-                        sodium REAL,
-                        total_sugars REAL,
-                        added_sugars REAL,
-                        fiber REAL,
-                        potassium REAL,
-                        is_calculated BOOLEAN DEFAULT TRUE
-                    );
-                """)
-                
-                # Create indexes for faster searching
-                cursor.execute("""
-                    -- Drop existing indexes first
-                    DROP INDEX IF EXISTS idx_recipe_title;
-                    DROP INDEX IF EXISTS idx_recipe_complexity;
-                    DROP INDEX IF EXISTS idx_recipe_tags;
-                    DROP INDEX IF EXISTS idx_recipe_ingredients;
-                    DROP INDEX IF EXISTS idx_recipe_cuisine;
-                    
-                    -- Recreate indexes
-                    CREATE INDEX idx_recipe_title ON scraped_recipes(title);
-                    CREATE INDEX idx_recipe_complexity ON scraped_recipes(complexity);
-                    CREATE INDEX idx_recipe_tags ON recipe_tags(tag);
-                    CREATE INDEX idx_recipe_ingredients ON recipe_ingredients(name);
-                    CREATE INDEX idx_recipe_cuisine ON scraped_recipes(cuisine);
-                """)
-                
-                conn.commit()
-                logger.info("Database tables created/updated successfully")
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Error creating database tables: {str(e)}")
-            raise
-        finally:
             conn.close()
+
+# If this script is run directly, create tables
+if __name__ == "__main__":
+    from database.db_connector import create_tables_if_not_exist
+    create_tables_if_not_exist()
