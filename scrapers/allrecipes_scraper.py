@@ -657,16 +657,14 @@ class AllRecipesScraper:
                 dv_text = cells[1].text.strip().rstrip('%')
                 
                 try:
-                    # Strip 'm' from value_text before parsing
-                    value_text = value_text.rstrip('m')
+                    # Robustly strip 'm' and any non-numeric characters after the number
+                    value_text = re.sub(r'[^0-9.]', '', value_text)  # Keep only numbers and decimal points
                     
                     # Parse numeric value
-                    if value_text.endswith('g'):
-                        value = float(value_text.rstrip('g'))
-                    elif value_text.endswith('mg'):
-                        value = float(value_text.rstrip('mg'))
-                    else:
+                    if value_text:
                         value = float(value_text)
+                    else:
+                        raise ValueError("No numeric value after stripping")
                     
                     # Parse daily value percentage
                     try:
