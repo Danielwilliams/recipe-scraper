@@ -1,4 +1,3 @@
-# processors/recipe_processor.py
 import re
 import logging
 from datetime import datetime
@@ -63,15 +62,9 @@ class RecipeProcessor:
     
     def _clean_title(self, title):
         """Clean and standardize recipe title"""
-        # Remove redundant words like "recipe"
         title = re.sub(r'\brecipe\b', '', title, flags=re.IGNORECASE).strip()
-        
-        # Capitalize title properly
         title = string.capwords(title)
-        
-        # Remove multiple spaces
         title = re.sub(r'\s+', ' ', title).strip()
-        
         return title
     
     def _process_ingredients(self, ingredients_list):
@@ -95,21 +88,14 @@ class RecipeProcessor:
             if not step or step.strip() == '':
                 continue
                 
-            # Remove step numbers if present
             cleaned_step = re.sub(r'^\s*\d+\.\s*', '', step).strip()
-            
-            # Remove extra whitespace
             cleaned_step = re.sub(r'\s+', ' ', cleaned_step).strip()
             
             if cleaned_step:
-                # Ensure first letter is capitalized
                 if len(cleaned_step) > 0:
                     cleaned_step = cleaned_step[0].upper() + cleaned_step[1:]
-                
-                # Ensure step ends with a period
                 if not cleaned_step.endswith('.') and not cleaned_step.endswith('!') and not cleaned_step.endswith('?'):
                     cleaned_step += '.'
-                
                 processed_instructions.append(cleaned_step)
         
         return processed_instructions
@@ -118,7 +104,6 @@ class RecipeProcessor:
         """Extract and standardize recipe metadata"""
         metadata = raw_recipe.get('metadata', {})
         
-        # Ensure numeric values are integers
         for key in ['prep_time', 'cook_time', 'total_time', 'servings']:
             if key in metadata and metadata[key] is not None:
                 try:
@@ -126,11 +111,9 @@ class RecipeProcessor:
                 except (ValueError, TypeError):
                     metadata[key] = None
         
-        # Calculate total time if not present
         if 'total_time' not in metadata and 'prep_time' in metadata and 'cook_time' in metadata:
             prep_time = metadata.get('prep_time', 0) or 0
             cook_time = metadata.get('cook_time', 0) or 0
-            
             if prep_time > 0 or cook_time > 0:
                 metadata['total_time'] = prep_time + cook_time
         
@@ -140,34 +123,28 @@ class RecipeProcessor:
         """Generate relevant tags for the recipe"""
         tags = set()
         
-        # Start with any existing tags
         if 'tags' in raw_recipe and isinstance(raw_recipe['tags'], list):
             for tag in raw_recipe['tags']:
                 tags.add(tag.lower().strip())
         
-        # Add cuisine as a tag if present
         cuisine = self._infer_cuisine(raw_recipe)
         if cuisine:
             tags.add(cuisine.lower())
         
-        # Add meal type tags if identified
         combined_text = (
             raw_recipe.get('title', '') + ' ' + 
             ' '.join(raw_recipe.get('ingredients', [])) + ' ' + 
             ' '.join(raw_recipe.get('instructions', []))
         ).lower()
         
-        # Check for diet terms
         for diet in self.diet_terms:
             if diet in combined_text:
                 tags.add(diet)
         
-        # Check for meal types
         for meal in self.meal_types:
             if meal in combined_text:
                 tags.add(meal)
         
-        # Add complexity as a tag
         complexity = raw_recipe.get('complexity', self._infer_complexity(raw_recipe))
         if complexity:
             tags.add(complexity + ' recipe')
@@ -176,24 +153,20 @@ class RecipeProcessor:
     
     def _infer_cuisine(self, raw_recipe):
         """Infer cuisine based on ingredients, title, and text"""
-        # Start with any explicitly mentioned cuisine
         if 'cuisine' in raw_recipe and raw_recipe['cuisine']:
             return raw_recipe['cuisine']
         
-        # Look for cuisine mentions in categories
         if 'categories' in raw_recipe:
             for category in raw_recipe['categories']:
                 for cuisine in self.common_cuisines:
                     if cuisine in category.lower():
                         return cuisine
         
-        # Check title for cuisine mentions
         title = raw_recipe.get('title', '').lower()
         for cuisine in self.common_cuisines:
             if cuisine in title:
                 return cuisine
         
-        # Look for cuisine indicator ingredients
         ingredients_text = ' '.join([str(ing) for ing in raw_recipe.get('ingredients', [])])
         
         cuisine_indicators = {
@@ -204,4 +177,19 @@ class RecipeProcessor:
         }
         
         for cuisine, indicators in cuisine_indicators.items():
-            if any(indicator in ingredients_text.lower()
+            if any(indicator in ingredients_text.lower() for indicator in indicators):
+                return cuisine
+        
+        return None
+    
+    def _infer_complexity(self, raw_recipe):
+        """Infer complexity based on number of ingredients and steps"""
+        num_ingredients = len(raw_recipe.get('ingredients', []))
+        num_steps = len(raw_recipe.get('instructions', []))
+        
+        if num_ingredients <= 5 and num_steps <= 3:
+            return 'easy'
+        elif num_ingredients >= 12 or num_steps >= 8:
+            return 'complex'
+        else:
+            return 'medium'
