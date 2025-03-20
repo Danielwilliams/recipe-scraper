@@ -404,82 +404,153 @@ class AllRecipesScraper:
             logger.error(f"Error parsing JSON-LD in {url}: {str(e)}")
             return None 
 
-    def _extract_from_html(self, soup, url, html_content):
+    def _extract_from_html(self, soup, url, html_content=None):
         """
-        Extract recipe information from HTML when JSON-LD is not available
+        Extract recipe information from HTML using direct parsing
         
         Args:
             soup (BeautifulSoup): Parsed HTML
-            url (str): Recipe URL
-            html_content (str): Raw HTML content
+            url (str): URL of the recipe
+            html_content (str, optional): Raw HTML content
             
         Returns:
             dict: Extracted recipe information
         """
         try:
             # Extract title
-            title_elem = soup.select_one('h1.recipe-title') or soup.select_one('h1.headline') or soup.find('h1')
+            title_elem = soup.select_one('h1')
             title = title_elem.text.strip() if title_elem else "Untitled Recipe"
             
             # Extract ingredients
             ingredients = []
-            ingredient_elems = soup.select('.ingredients-item-name') or soup.select('.ingredients-list li')
+            ingredient_elems = soup.select('.mm-recipes-structured-ingredients__list-item')
             for elem in ingredient_elems:
-                ingredient_text = elem.text.strip()
-                if ingredient_text and not ingredient_text.startswith('Add all ingredients to list'):
-                    ingredients.append(ingredient_text)
+                quantity_elem = elem.select_one('[data-ingredient-quantity="true"]')
+                unit_elem = elem.select_one('[data-ingredient-unit="true"]')
+                name_elem = elem.select_one('[data-ingredient-name="true"]')
+                
+                ingredient_text = ""
+                if quantity_elem:
+                    ingredient_text += quantity_elem.text.strip() + " "
+                if unit_elem:
+                    ingredient_text += unit_elem.text.strip() + " "
+                if name_elem:
+                    ingredient_text += name_elem.text.strip()
+                
+                if ingredient_text.strip():
+                    ingredients.append(ingredient_text.strip())
             
             # Extract instructions
             instructions = []
-            instruction_elems = soup.select('.instructions-section .section-body p') or \
-                               soup.select('.recipe-directions__list--item') or \
-                               soup.select('.instructions-section li')
-            
+            instruction_elems = soup.select('.mm-recipes-steps .mntl-sc-block-group--LI p')
             for elem in instruction_elems:
                 step = elem.text.strip()
-                if step and not step.startswith('Watch Now'):
+                if step:
                     instructions.append(step)
             
-            # Extract image
-            image_url = None
+            # Extract metadata
+            metadata = {}
             
-            # Try multiple image selectors
-            image_elem = soup.select_one('.primary-image__image') or \
-                        soup.select_one('.recipe-lead-image') or \
-                        soup.select_one('.lead-media-image') or \
-                        soup.select_one('.universal-image__image')
+            # Time details
+            time_details = soup.select('.mm-recipes-details__item')
+            for detail in time_details:
+                label_elem = detail.select_one('.mm-recipes-details__label')
+                value_elem = detail.select_one('.mm-recipes-details__value')
+                
+                if label_elem and value_elem:
+                    label = label_elem.text.strip().lower()
+                    value = value_elem.text.strip()
+                    
+                    time_match = re.search(r'(\d+)\s*(mins?|hrs?)?', value, re.IGNORECASE)
+                    if time_match:
+                        time_value = int(time_match.group(1))
+                        time_unit = time_match.group(2) or 'mins'
+                        
+                        if 'hr' in time_unit.lower():
+                            time_value *= 60
+                        
+                        if 'prep time' in label:
+                            metadata['prep_time'] = time_value
+                        elif 'cook time' in label:
+                            metadata['cook_time'] = time_value
+                        elif 'total time' in label:
+                            metadata['total_time'] = time_value
+                    
+                    # Servings
+                    if 'servings' in label or 'yield' in label:
+                        servings_match = re.search(r'(\d+)', value)
+                        if servings_match:
+                            metadata['servings'] = int(servings_match.group(1))
             
-            if image_elem:
-                image_url = image_elem.get('src') or image_elem.get('data-src')
-            
-            # Try OG image as fallback
-            if not image_url:
-                og_image = soup.find('meta', {'property': 'og:image'})
-                if og_image:
-                    image_url = og_image.get('content')
-            
-            # Try other image containers
-            if not image_url:
-                image_container = soup.select_one('.image-container') or soup.select_one('.recipe-image')
-                if image_container:
-                    img = image_container.find('img')
-                    if img:
-                        image_url = img.get('src') or img.get('data-src')
-            
-            # Extract metadata (Prep time, Cook time, etc.)
-            metadata = self._extract_metadata(soup)
-            
-            # Try to extract nutrition information
+            # Extract nutrition information
             nutrition = self._extract_nutrition(soup)
             
-            # Determine complexity based on number of ingredients and steps
+            # Extract image URL
+            image_elem = soup.select_one('.primary-image__image')
+            image_url = image_elem.get('src') if image_elem else None
+            
+            # Determine complexity
             complexity = "easy"
             if len(ingredients) >= 10 or len(instructions) >= 7:
                 complexity = "complex"
             elif len(ingredients) >= 6 or len(instructions) >= 4:
                 complexity = "medium"
             
-            return {
+            # Extract breadcrumb/categories/cuisine
+            categories = []
+            breadcrumbs = soup.select('.mntl-breadcrumbs__link')
+            for crumb in breadcrumbs:
+                crumb_text = crumb.text.strip()
+                if crumb_text and crumb_text.lower() not in ['home', 'recipes']:
+                    categories.append(crumb_text)
+            
+            # Infer cuisine
+            cuisine = None
+            known_cuisines = ['Italian', 'Mexican', 'Chinese', 'Indian', 
+                              'Japanese', 'Thai', 'French', 'Greek', 
+                              'Mediterranean', 'Spanish', 'Korean', 'Vietnamese']
+            
+            for crumb in categories:
+                if crumb in known_cuisines:
+                    cuisine = crumb
+                    break
+            
+            # Generate tags
+            tags = []
+            
+            # Combine text for tag generation
+            combined_text = (
+                title + ' ' + 
+                ' '.join(ingredients) + ' ' + 
+                ' '.join(instructions)
+            ).lower()
+            
+            # Diet and meal type tags
+            diet_terms = [
+                'vegetarian', 'vegan', 'gluten-free', 'dairy-free', 
+                'keto', 'paleo', 'low-carb', 'low-fat', 'sugar-free'
+            ]
+            meal_types = [
+                'breakfast', 'lunch', 'dinner', 'appetizer', 
+                'dessert', 'snack', 'salad', 'soup'
+            ]
+            
+            for term in diet_terms:
+                if term in combined_text:
+                    tags.append(term)
+            
+            for meal in meal_types:
+                if meal in combined_text:
+                    tags.append(meal)
+            
+            tags.append(complexity + ' recipe')
+            
+            # If cuisine found, add to tags
+            if cuisine:
+                tags.append(cuisine.lower())
+            
+            # Build recipe dictionary
+            recipe = {
                 'title': title,
                 'ingredients': ingredients,
                 'instructions': instructions,
@@ -487,15 +558,101 @@ class AllRecipesScraper:
                 'source_url': url,
                 'date_scraped': datetime.now().isoformat(),
                 'complexity': complexity,
+                'categories': categories,
+                'cuisine': cuisine,
+                'tags': list(set(tags)),
+                'image_url': image_url,
                 'metadata': metadata,
                 'nutrition': nutrition,
-                'image_url': image_url,
-                'raw_content': html_content[:1000]  # Store just a portion to save space
+                'raw_content': html_content[:5000]  # Limit raw content
             }
-        
+            
+            return recipe
+            
         except Exception as e:
-            logger.error(f"Error extracting recipe from HTML: {str(e)}")
+            logger.error(f"Error extracting recipe from {url}: {str(e)}")
             return None
+    
+    def _extract_nutrition(self, soup):
+        """
+        Extract detailed nutrition information from the page
+        
+        Args:
+            soup (BeautifulSoup): Parsed HTML content
+            
+        Returns:
+            dict: Nutrition information
+        """
+        try:
+            # Find the nutrition label table
+            nutrition_table = soup.select_one('.mm-recipes-nutrition-facts-label__table')
+            
+            if not nutrition_table:
+                return None
+            
+            # Initialize nutrition data dictionary
+            nutrition_data = {
+                'calories': None,
+                'total_fat': None,
+                'saturated_fat': None,
+                'cholesterol': None,
+                'sodium': None,
+                'carbs': None,
+                'fiber': None,
+                'protein': None,
+                'potassium': None
+            }
+            
+            # Extract nutrition values from table rows
+            rows = nutrition_table.select('tbody tr')
+            
+            for row in rows:
+                # Skip header rows
+                if 'mm-recipes-nutrition-facts-label__table-dv-row' in row.get('class', []):
+                    continue
+                
+                cells = row.select('td')
+                if len(cells) != 2:
+                    continue
+                
+                # Look for nutrient name and value
+                nutrient_name_elem = cells[0].select_one('.mm-recipes-nutrition-facts-label__nutrient-name')
+                
+                if not nutrient_name_elem:
+                    # If no specific name elem, use text of first cell
+                    nutrient_name = cells[0].get_text(strip=True).lower()
+                else:
+                    nutrient_name = nutrient_name_elem.get_text(strip=True).lower()
+                
+                # Extract numeric value from first cell
+                value_match = re.search(r'([\d.]+)([a-z]+)?', cells[0].get_text(strip=True), re.IGNORECASE)
+                
+                if value_match:
+                    value = float(value_match.group(1))
+                    unit = value_match.group(2) if value_match.group(2) else 'g'
+                    
+                    # Map nutrition names to standardized keys
+                    if 'calories' in nutrient_name:
+                        nutrition_data['calories'] = value
+                    elif 'total fat' in nutrient_name:
+                        nutrition_data['total_fat'] = value
+                    elif 'saturated fat' in nutrient_name:
+                        nutrition_data['saturated_fat'] = value
+                    elif 'cholesterol' in nutrient_name:
+                        nutrition_data['cholesterol'] = value
+                    elif 'sodium' in nutrient_name:
+                        nutrition_data['sodium'] = value
+                    elif 'total carbohydrate' in nutrient_name:
+                        nutrition_data['carbs'] = value
+                    elif 'dietary fiber' in nutrient_name:
+                        nutrition_data['fiber'] = value
+                    elif 'protein' in nutrient_name:
+                        nutrition_data['protein'] = value
+                    elif 'potassium' in nutrient_name:
+                        nutrition_data['potassium'] = value
+            
+            # Ensure only non-None values are returned
+            return {k: v for k, v in nutrition_data.items() if v is not None}
 
     def _parse_iso_duration(self, iso_duration):
        """Parse ISO 8601 duration to minutes"""
@@ -617,3 +774,250 @@ class AllRecipesScraper:
             total_minutes += int(min_match.group(1))
         
         return total_minutes if total_minutes > 0 else None
+
+     def save_recipe(self, recipe):
+        """
+        Save a recipe to the database
+        
+        Args:
+            recipe (dict): Recipe data
+            
+        Returns:
+            int: Recipe ID if successful, None otherwise
+        """
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cursor:
+                # Check if recipe already exists
+                cursor.execute("""
+                    SELECT id FROM scraped_recipes
+                    WHERE title = %s AND source = %s
+                    LIMIT 1
+                """, (recipe['title'], recipe['source']))
+                
+                existing = cursor.fetchone()
+                if existing:
+                    logger.info(f"Recipe already exists: {recipe['title']}")
+                    return existing[0]
+                
+                # Extract metadata fields for logging and clarity
+                metadata = recipe.get('metadata', {})
+                prep_time = metadata.get('prep_time')
+                cook_time = metadata.get('cook_time')
+                total_time = metadata.get('total_time')
+                servings = metadata.get('servings')
+                
+                # Log the extracted times
+                logger.info(f"Saving recipe '{recipe['title']}' with prep_time={prep_time}, cook_time={cook_time}")
+                
+                # Insert recipe
+                cursor.execute("""
+                    INSERT INTO scraped_recipes (
+                        title, source, source_url, instructions, date_scraped, date_processed,
+                        complexity, prep_time, cook_time, total_time, servings, cuisine,
+                        is_verified, raw_content, metadata, image_url, categories
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    ) RETURNING id
+                """, (
+                    recipe['title'],
+                    recipe['source'],
+                    recipe['source_url'],
+                    json.dumps(recipe['instructions']),
+                    datetime.now(),
+                    datetime.now(),
+                    recipe['complexity'],
+                    prep_time,
+                    cook_time,
+                    total_time,
+                    servings,
+                    recipe.get('cuisine'),
+                    False,  # Not verified initially
+                    recipe.get('raw_content', '')[:5000],  # Limit raw content size
+                    json.dumps(metadata),
+                    recipe.get('image_url'),
+                    json.dumps(recipe.get('categories', []))
+                ))
+                
+                recipe_id = cursor.fetchone()[0]
+                
+                # Insert ingredients
+                if 'ingredients' in recipe and recipe['ingredients']:
+                    for ing in recipe['ingredients']:
+                        # Handle structured ingredient parsing
+                        if isinstance(ing, dict):
+                            cursor.execute("""
+                                INSERT INTO recipe_ingredients
+                                (recipe_id, name, amount, unit, notes, category)
+                                VALUES (%s, %s, %s, %s, %s, %s)
+                            """, (
+                                recipe_id,
+                                ing.get('name', ''),
+                                str(ing.get('amount')) if ing.get('amount') is not None else None,
+                                ing.get('unit'),
+                                ing.get('notes'),
+                                ing.get('category', 'unknown')
+                            ))
+                        else:
+                            # Fallback for string ingredients
+                            cursor.execute("""
+                                INSERT INTO recipe_ingredients
+                                (recipe_id, name, category)
+                                VALUES (%s, %s, %s)
+                            """, (
+                                recipe_id,
+                                str(ing),
+                                'unknown'
+                            ))
+                
+                # Insert tags
+                if 'tags' in recipe and recipe['tags']:
+                    for tag in recipe['tags']:
+                        cursor.execute("""
+                            INSERT INTO recipe_tags
+                            (recipe_id, tag)
+                            VALUES (%s, %s)
+                        """, (
+                            recipe_id,
+                            tag
+                        ))
+                
+                # Insert comprehensive nutrition information
+                if recipe.get('nutrition'):
+                    nutrition = recipe['nutrition']
+                    cursor.execute("""
+                        INSERT INTO recipe_nutrition (
+                            recipe_id, calories, protein, carbs, fat, 
+                            saturated_fat, cholesterol, sodium, 
+                            total_sugars, fiber, 
+                            potassium, is_calculated
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, 
+                            %s, %s, %s, 
+                            %s, %s, 
+                            %s, %s
+                        )
+                    """, (
+                        recipe_id,
+                        nutrition.get('calories'),
+                        nutrition.get('protein'),
+                        nutrition.get('carbs'),
+                        nutrition.get('total_fat'),
+                        nutrition.get('saturated_fat'),
+                        nutrition.get('cholesterol'),
+                        nutrition.get('sodium'),
+                        None,  # total_sugars not in current extraction
+                        nutrition.get('fiber'),
+                        nutrition.get('potassium'),
+                        True
+                    ))
+                
+                conn.commit()
+                logger.info(f"Saved recipe '{recipe['title']}' with ID {recipe_id}")
+                return recipe_id
+                
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error saving recipe '{recipe.get('title', 'Unknown')}': {str(e)}")
+            return None
+        finally:
+            conn.close()
+
+    def create_tables_if_not_exist():
+        """Create necessary tables if they don't exist"""
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cursor:
+                # Create scraped_recipes table with additional fields
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS scraped_recipes (
+                        id SERIAL PRIMARY KEY,
+                        title VARCHAR(255) NOT NULL,
+                        source VARCHAR(100) NOT NULL,
+                        source_url TEXT,
+                        instructions JSONB NOT NULL,
+                        date_scraped TIMESTAMP NOT NULL,
+                        date_processed TIMESTAMP NOT NULL,
+                        complexity VARCHAR(20),
+                        prep_time INTEGER,
+                        cook_time INTEGER,
+                        total_time INTEGER,
+                        servings INTEGER,
+                        cuisine VARCHAR(50),
+                        is_verified BOOLEAN DEFAULT FALSE,
+                        raw_content TEXT,
+                        metadata JSONB,
+                        image_url TEXT,
+                        categories JSONB,
+                        tags TEXT[]
+                    );
+                """)
+                
+                # Create recipe_ingredients table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS recipe_ingredients (
+                        id SERIAL PRIMARY KEY,
+                        recipe_id INTEGER REFERENCES scraped_recipes(id) ON DELETE CASCADE,
+                        name VARCHAR(100) NOT NULL,
+                        amount VARCHAR(50),
+                        unit VARCHAR(30),
+                        notes TEXT,
+                        category VARCHAR(50),
+                        is_main_ingredient BOOLEAN DEFAULT FALSE
+                    );
+                """)
+                
+                # Create recipe_tags table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS recipe_tags (
+                        id SERIAL PRIMARY KEY,
+                        recipe_id INTEGER REFERENCES scraped_recipes(id) ON DELETE CASCADE,
+                        tag VARCHAR(50) NOT NULL
+                    );
+                """)
+                
+                # Create recipe_nutrition table with more comprehensive fields
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS recipe_nutrition (
+                        id SERIAL PRIMARY KEY,
+                        recipe_id INTEGER REFERENCES scraped_recipes(id) ON DELETE CASCADE,
+                        calories INTEGER,
+                        protein REAL,
+                        carbs REAL,
+                        fat REAL,
+                        saturated_fat REAL,
+                        cholesterol REAL,
+                        sodium REAL,
+                        total_sugars REAL,
+                        added_sugars REAL,
+                        fiber REAL,
+                        potassium REAL,
+                        is_calculated BOOLEAN DEFAULT TRUE
+                    );
+                """)
+                
+                # Create indexes for faster searching
+                cursor.execute("""
+                    -- Drop existing indexes first
+                    DROP INDEX IF EXISTS idx_recipe_title;
+                    DROP INDEX IF EXISTS idx_recipe_complexity;
+                    DROP INDEX IF EXISTS idx_recipe_tags;
+                    DROP INDEX IF EXISTS idx_recipe_ingredients;
+                    DROP INDEX IF EXISTS idx_recipe_cuisine;
+                    
+                    -- Recreate indexes
+                    CREATE INDEX idx_recipe_title ON scraped_recipes(title);
+                    CREATE INDEX idx_recipe_complexity ON scraped_recipes(complexity);
+                    CREATE INDEX idx_recipe_tags ON recipe_tags(tag);
+                    CREATE INDEX idx_recipe_ingredients ON recipe_ingredients(name);
+                    CREATE INDEX idx_recipe_cuisine ON scraped_recipes(cuisine);
+                """)
+                
+                conn.commit()
+                logger.info("Database tables created/updated successfully")
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error creating database tables: {str(e)}")
+            raise
+        finally:
+            conn.close()
