@@ -20,16 +20,17 @@ class FoodNetworkScraper:
         """Initialize the Food Network scraper with enhanced browser simulation"""
         logger.info("Initializing Food Network Scraper")
         
-        # User-Agent rotation
+        # Expanded User-Agent pool
         self.user_agents = [
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0'
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
+            'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/123.0.0.0',
         ]
         
-        # Sophisticated headers to mimic a real browser
-        self.headers = {
-            'User-Agent': random.choice(self.user_agents),
+        # Base headers
+        self.base_headers = {
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
             'Accept-Encoding': 'gzip, deflate, br',
@@ -39,47 +40,39 @@ class FoodNetworkScraper:
             'Sec-Fetch-Mode': 'navigate',
             'Sec-Fetch-Site': 'none',
             'Sec-Fetch-User': '?1',
-            'DNT': '1',  # Do Not Track
+            'DNT': '1',
             'Referer': 'https://www.foodnetwork.com/',
-        }
-        
-        # Cookies for better browser simulation
-        self.cookies = {
-            'OptanonAlertBoxClosed': '2023-01-01T12:00:00.000Z',
-            'OptanonConsent': 'isIABGlobal=false&datestamp=Tue+Mar+19+2024+12:00:00+GMT-0400',
         }
         
         self.base_url = "https://www.foodnetwork.com"
         self.recipe_list_url = "https://www.foodnetwork.com/recipes/recipes-a-z"
         
-        # Attempt counter for retries
+        # Attempt counter and max retries
         self.attempt_counter = 0
         self.max_attempts = 3
         
-        # Cache directory for storing recipe HTML
+        # Cache directory
         self.cache_dir = os.path.join('data', 'recipe_cache')
         os.makedirs(self.cache_dir, exist_ok=True)
         
-        # Initialize cloudscraper
+        # Initialize cloudscraper with session persistence
         self.cloud_scraper = cloudscraper.create_scraper()
+        self.session_cookies = {}
+    
+    def _get_headers(self):
+        """Generate fresh headers with a random User-Agent per request"""
+        headers = self.base_headers.copy()
+        headers['User-Agent'] = random.choice(self.user_agents)
+        return headers
     
     def scrape(self, limit=50):
-        """
-        Scrape recipes from Food Network
-        
-        Args:
-            limit (int): Maximum number of recipes to scrape
-            
-        Returns:
-            list: Scraped recipes
-        """
+        """Scrape recipes from Food Network"""
         logger.info(f"Starting Food Network scraping with limit: {limit}")
         recipes = []
         
-        # Try different scraping methods in order of preference
         methods = [
-            self._scrape_from_static_links,  # Prioritize static links in CI
-            self._scrape_normal              # Then normal scraping with cloudscraper
+            self._scrape_from_static_links,
+            self._scrape_normal
         ]
         
         for method in methods:
@@ -100,8 +93,6 @@ class FoodNetworkScraper:
         """Standard scraping method with cloudscraper"""
         recipes = []
         letters = list("abcdefghijklmnopqrstuvwxyz123")
-        
-        # Distribute limit across alphabet letters
         recipes_per_letter = max(2, limit // len(letters))
         
         for letter in letters:
@@ -115,7 +106,6 @@ class FoodNetworkScraper:
                 recipe_links = self._get_recipe_links(letter_url, recipes_per_letter)
                 logger.info(f"Found {len(recipe_links)} recipes for letter '{letter}'")
                 
-                # Process recipe links
                 letter_count = 0
                 for url in recipe_links:
                     if len(recipes) >= limit or letter_count >= recipes_per_letter:
@@ -125,7 +115,7 @@ class FoodNetworkScraper:
                         full_url = urljoin(self.base_url, url)
                         logger.info(f"Scraping recipe: {full_url}")
                         
-                        time.sleep(random.uniform(5, 10))
+                        time.sleep(random.uniform(8, 15))  # Increased delay
                         recipe_info = self._process_recipe_url(full_url)
                         if recipe_info:
                             recipes.append(recipe_info)
@@ -135,7 +125,7 @@ class FoodNetworkScraper:
                     except Exception as e:
                         logger.error(f"Error scraping recipe {url}: {str(e)}")
                 
-                time.sleep(random.uniform(5, 10))
+                time.sleep(random.uniform(10, 20))  # Increased delay between letters
                 
             except Exception as e:
                 logger.error(f"Error processing letter '{letter}': {str(e)}")
@@ -143,24 +133,15 @@ class FoodNetworkScraper:
         return recipes
     
     def _get_recipe_links(self, letter_url, limit):
-        """
-        Get recipe links from a letter page with retries
-        
-        Args:
-            letter_url (str): URL of the letter page
-            limit (int): Maximum number of links to return
-            
-        Returns:
-            list: Recipe links
-        """
+        """Get recipe links from a letter page with retries"""
         recipe_links = []
         
         for attempt in range(self.max_attempts):
             try:
                 logger.info(f"Accessing letter page (attempt {attempt + 1}): {letter_url}")
-                time.sleep(random.uniform(5, 10))
+                time.sleep(random.uniform(8, 15))
                 
-                response = self.cloud_scraper.get(letter_url, headers=self.headers, timeout=30)
+                response = self.cloud_scraper.get(letter_url, headers=self._get_headers(), cookies=self.session_cookies, timeout=30)
                 if response.status_code != 200:
                     logger.error(f"Failed to access letter page: {letter_url}, Status: {response.status_code}")
                     with open(f"foodnetwork_error_response_{attempt}.html", "w", encoding="utf-8") as f:
@@ -170,6 +151,9 @@ class FoodNetworkScraper:
                         time.sleep(5 * (attempt + 1))
                         continue
                     return recipe_links
+                
+                # Update session cookies
+                self.session_cookies.update(response.cookies.get_dict())
                 
                 soup = BeautifulSoup(response.text, 'lxml')
                 link_elements = soup.select('.m-PromoList__a-ListItem a')
@@ -218,6 +202,7 @@ class FoodNetworkScraper:
         for url in static_links:
             try:
                 logger.info(f"Static scraping - Processing recipe: {url}")
+                time.sleep(random.uniform(8, 15))  # Increased delay
                 recipe_info = self._process_recipe_url(url)
                 if recipe_info:
                     recipes.append(recipe_info)
@@ -228,18 +213,9 @@ class FoodNetworkScraper:
         return recipes
     
     def _process_recipe_url(self, url):
-        """
-        Process a recipe URL with multiple fallback methods
-        
-        Args:
-            url (str): Recipe URL
-            
-        Returns:
-            dict: Recipe information or None if all methods fail
-        """
+        """Process a recipe URL with multiple fallback methods"""
         recipe_id = self._extract_recipe_id(url)
         
-        # Check for cached HTML file
         if recipe_id:
             cache_file = os.path.join(self.cache_dir, f"{recipe_id}.html")
             if os.path.exists(cache_file):
@@ -251,19 +227,19 @@ class FoodNetworkScraper:
                 except Exception as e:
                     logger.error(f"Error using cached HTML for {url}: {str(e)}")
         
-        # Try direct HTTP request with cloudscraper
         for attempt in range(self.max_attempts):
             try:
                 logger.info(f"Fetching recipe HTML via HTTP (attempt {attempt + 1}): {url}")
-                time.sleep(random.uniform(5, 10))
+                time.sleep(random.uniform(8, 15))
                 
-                response = self.cloud_scraper.get(url, headers=self.headers, timeout=30)
+                response = self.cloud_scraper.get(url, headers=self._get_headers(), cookies=self.session_cookies, timeout=30)
                 if response.status_code == 200:
                     if recipe_id:
                         cache_file = os.path.join(self.cache_dir, f"{recipe_id}.html")
                         with open(cache_file, 'w', encoding='utf-8') as f:
                             f.write(response.text)
                         logger.info(f"Saved recipe HTML to cache: {cache_file}")
+                    self.session_cookies.update(response.cookies.get_dict())
                     return self._extract_recipe_info(response.text, url)
                 else:
                     logger.error(f"Failed to fetch recipe: {url}, Status: {response.status_code}")
@@ -290,83 +266,83 @@ class FoodNetworkScraper:
         return None
     
     def _extract_recipe_info(self, html_content, url):
-       """Extract structured recipe information from HTML"""
-       try:
-           soup = BeautifulSoup(html_content, 'lxml')
-           
-           # Extract title
-           title_elem = soup.select_one('h1.o-AssetTitle__a-Headline, h1.recipe-title')
-           title = title_elem.text.strip() if title_elem else "Untitled Recipe"
-           
-           # Extract ingredients
-           ingredients = []
-           ingredient_elements = soup.select('.o-Ingredients__a-Ingredient--CheckboxLabel, .ingredients-item-name')
-           for elem in ingredient_elements:
-               ingredient_text = elem.text.strip()
-               if ingredient_text and not ingredient_text.startswith('Deselect All'):
-                   ingredients.append(ingredient_text)
-           
-           section_headers = soup.select('.o-Ingredients__a-SubHeadline, .recipe-subsection-title')
-           for header in section_headers:
-               ingredients.append(header.text.strip())
-           
-           # Extract instructions
-           instructions = []
-           instruction_elements = soup.select('.o-Method__m-Step, .recipe-directions__list--item')
-           for elem in instruction_elements:
-               instruction_text = elem.text.strip()
-               if instruction_text:
-                   instructions.append(instruction_text)
-           
-           instruction_headers = soup.select('.o-Method__a-SubHeadline, .recipe-subsection-title')
-           for header in instruction_headers:
-               instructions.append(header.text.strip())
-           
-           if not instructions:
-               instruction_paragraphs = soup.select('.o-Method__m-Body p, .recipe-directions__list p')
-               for p in instruction_paragraphs:
-                   p_text = p.text.strip()
-                   if p_text and len(p_text) > 10:
-                       instructions.append(p_text)
-           
-           if len(ingredients) < 2 or len(instructions) < 2:
-               logger.info(f"Skipping recipe {url} - not enough data extracted")
-               return None
-           
-           # Extract complexity (Level)
-           complexity = None
-           level_elem = soup.select_one('.o-RecipeInfo__a-Description, .recipe-level')
-           if level_elem:
-               level_text = level_elem.text.strip()
-               if 'Level:' in level_text:
-                   complexity = level_text.split('Level:')[-1].strip().lower()
-                   # Standardize complexity values
-                   if complexity not in ['easy', 'medium', 'complex']:
-                       complexity = 'medium'  # Default if unrecognized
-           
-           # If complexity not found, infer it
-           if not complexity:
-               num_ingredients = len(ingredients)
-               num_steps = len(instructions)
-               if num_ingredients <= 5 and num_steps <= 3:
-                   complexity = 'easy'
-               elif num_ingredients >= 12 or num_steps >= 8:
-                   complexity = 'complex'
-               else:
-                   complexity = 'medium'
-           
-           recipe = {
-               'title': title,
-               'ingredients': ingredients,
-               'instructions': instructions,
-               'source': 'Food Network',
-               'source_url': url,
-               'date_scraped': datetime.now().isoformat(),
-               'complexity': complexity,  # Add complexity field
-           }
-           
-           return recipe
-           
-       except Exception as e:
-           logger.error(f"Error extracting recipe info from {url}: {str(e)}")
-           return None
+        """Extract structured recipe information from HTML"""
+        try:
+            soup = BeautifulSoup(html_content, 'lxml')
+            
+            title_elem = soup.select_one('h1.o-AssetTitle__a-Headline, h1.recipe-title')
+            title = title_elem.text.strip() if title_elem else "Untitled Recipe"
+            
+            ingredients = []
+            ingredient_elements = soup.select('.o-Ingredients__a-Ingredient--CheckboxLabel, .ingredients-item-name')
+            for elem in ingredient_elements:
+                ingredient_text = elem.text.strip()
+                if ingredient_text and not ingredient_text.startswith('Deselect All'):
+                    ingredients.append(ingredient_text)
+            
+            section_headers = soup.select('.o-Ingredients__a-SubHeadline, .recipe-subsection-title')
+            for header in section_headers:
+                ingredients.append(header.text.strip())
+            
+            instructions = []
+            instruction_elements = soup.select('.o-Method__m-Step, .recipe-directions__list--item')
+            for elem in instruction_elements:
+                instruction_text = elem.text.strip()
+                if instruction_text:
+                    instructions.append(instruction_text)
+            
+            instruction_headers = soup.select('.o-Method__a-SubHeadline, .recipe-subsection-title')
+            for header in instruction_headers:
+                instructions.append(header.text.strip())
+            
+            if not instructions:
+                instruction_paragraphs = soup.select('.o-Method__m-Body p, .recipe-directions__list p')
+                for p in instruction_paragraphs:
+                    p_text = p.text.strip()
+                    if p_text and len(p_text) > 10:
+                        instructions.append(p_text)
+            
+            if len(ingredients) < 2 or len(instructions) < 2:
+                logger.info(f"Skipping recipe {url} - not enough data extracted")
+                return None
+            
+            complexity = None
+            level_elem = soup.select_one('.o-RecipeInfo__a-Description, .recipe-level')
+            if level_elem:
+                level_text = level_elem.text.strip()
+                if 'Level:' in level_text:
+                    complexity = level_text.split('Level:')[-1].strip().lower()
+                    if complexity not in ['easy', 'medium', 'complex']:
+                        complexity = 'medium'
+            
+            if not complexity:
+                num_ingredients = len(ingredients)
+                num_steps = len(instructions)
+                if num_ingredients <= 5 and num_steps <= 3:
+                    complexity = 'easy'
+                elif num_ingredients >= 12 or num_steps >= 8:
+                    complexity = 'complex'
+                else:
+                    complexity = 'medium'
+            
+            recipe = {
+                'title': title,
+                'ingredients': ingredients,
+                'instructions': instructions,
+                'source': 'Food Network',
+                'source_url': url,
+                'date_scraped': datetime.now().isoformat(),
+                'complexity': complexity,
+            }
+            
+            return recipe
+            
+        except Exception as e:
+            logger.error(f"Error extracting recipe info from {url}: {str(e)}")
+            return None
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    scraper = FoodNetworkScraper()
+    recipes = scraper.scrape(limit=5)
+    print(f"Scraped {len(recipes)} recipes")
