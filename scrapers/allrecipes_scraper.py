@@ -655,21 +655,22 @@ class AllRecipesScraper:
             return {k: v for k, v in nutrition_data.items() if v is not None}
 
     def _parse_iso_duration(self, iso_duration):
-       """Parse ISO 8601 duration to minutes"""
-       if not iso_duration:
-           return None
-       
-       try:
-           # Handle PT1H30M format (ISO 8601 duration)
-           match = re.search(r'PT(?:(\d+)H)?(?:(\d+)M)?', iso_duration)
-           if match:
-               hours = int(match.group(1) or 0)
-               minutes = int(match.group(2) or 0)
-               return hours * 60 + minutes
-           
-           return None
-       except Exception:
-           return None
+        """Parse ISO 8601 duration to minutes"""
+        if not iso_duration:
+            return None
+        
+        try:
+            # Handle PT1H30M format (ISO 8601 duration)
+            match = re.search(r'PT(?:(\d+)H)?(?:(\d+)M)?', iso_duration)
+            if match:
+                hours = int(match.group(1) or 0)
+                minutes = int(match.group(2) or 0)
+                return hours * 60 + minutes
+            
+            return None
+        except Exception:
+            return None
+
     def _extract_metadata(self, soup):
         """
         Extract metadata like prep time, cook time, servings from the HTML
@@ -921,9 +922,10 @@ class AllRecipesScraper:
             logger.error(f"Error saving recipe '{recipe.get('title', 'Unknown')}': {str(e)}")
             return None
         finally:
-            conn.close()
+            conn.close()    
 
-    def create_tables_if_not_exist():
+    @classmethod
+    def create_tables_if_not_exist(cls):
         """Create necessary tables if they don't exist"""
         conn = get_db_connection()
         try:
