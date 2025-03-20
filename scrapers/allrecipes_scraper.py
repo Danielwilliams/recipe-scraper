@@ -567,77 +567,147 @@ class AllRecipesScraper:
             return None
     
     def _extract_nutrition(self, soup):
-        """
-        Extract detailed nutrition information from the page
+    """
+    Extract detailed nutrition information from the page
+    
+    Args:
+        soup (BeautifulSoup): Parsed HTML content
         
-        Args:
-            soup (BeautifulSoup): Parsed HTML content
-            
-        Returns:
-            dict: Nutrition information
-        """
-        try:
-            # Find the nutrition facts table
-            nutrition_table = soup.select_one('.mm-recipes-nutrition-facts-summary__table')
-            
-            if not nutrition_table:
-                return None
-            
-            # Initialize nutrition data dictionary
-            nutrition_data = {
-                'calories': None,
-                'fat': None,
-                'carbs': None,
-                'protein': None,
-                'saturated_fat': None,
-                'cholesterol': None,
-                'sodium': None,
-                'fiber': None,
-                'sugars': None
-            }
-            
-            # Extract nutrition values from table rows
-            rows = nutrition_table.select('.mm-recipes-nutrition-facts-summary__table-row')
-            for row in rows:
-                value_cell = row.select_one('.mm-recipes-nutrition-facts-summary__table-cell.text-body-100-prominent')
-                label_cell = row.select_one('.mm-recipes-nutrition-facts-summary__table-cell.text-body-100')
-                
-                if value_cell and label_cell:
-                    value = value_cell.text.strip().rstrip('g ')
-                    label = label_cell.text.strip().lower()
-                    
-                    try:
-                        # Convert to float, removing any non-numeric characters
-                        numeric_value = float(value)
-                        
-                        # Map labels to nutrition keys
-                        if 'calories' in label:
-                            nutrition_data['calories'] = numeric_value
-                        elif 'fat' in label and 'saturated' not in label:
-                            nutrition_data['fat'] = numeric_value
-                        elif 'saturated fat' in label:
-                            nutrition_data['saturated_fat'] = numeric_value
-                        elif 'carbs' in label:
-                            nutrition_data['carbs'] = numeric_value
-                        elif 'protein' in label:
-                            nutrition_data['protein'] = numeric_value
-                        elif 'cholesterol' in label:
-                            nutrition_data['cholesterol'] = numeric_value
-                        elif 'sodium' in label:
-                            nutrition_data['sodium'] = numeric_value
-                        elif 'fiber' in label:
-                            nutrition_data['fiber'] = numeric_value
-                        elif 'sugars' in label:
-                            nutrition_data['sugars'] = numeric_value
-                    except (ValueError, TypeError):
-                        pass  # Skip if conversion fails
-            
-            logger.info(f"Extracted nutrition data: {nutrition_data}")
-            return nutrition_data
+    Returns:
+        dict: Comprehensive nutrition information
+    """
+    try:
+        # Find the nutrition facts table
+        nutrition_table = soup.select_one('.mm-recipes-nutrition-facts-label__table')
         
-        except Exception as e:
-            logger.error(f"Error extracting nutrition info: {str(e)}")
+        if not nutrition_table:
             return None
+        
+        # Initialize comprehensive nutrition data dictionary
+        nutrition_data = {
+            # Basic macronutrients and calories
+            'calories': None,
+            'total_fat': None,
+            'saturated_fat': None,
+            'total_carbohydrate': None,
+            'dietary_fiber': None,
+            'protein': None,
+            
+            # Micronutrients and additional details
+            'cholesterol': None,
+            'sodium': None,
+            'potassium': None,
+            
+            # Daily value percentages
+            'daily_values': {
+                'total_fat_dv': None,
+                'saturated_fat_dv': None,
+                'cholesterol_dv': None,
+                'sodium_dv': None,
+                'total_carbohydrate_dv': None,
+                'dietary_fiber_dv': None,
+                'protein_dv': None,
+                'potassium_dv': None
+            },
+            
+            # Servings information
+            'servings_per_recipe': None
+        }
+        
+        # Extract servings per recipe
+        servings_elem = soup.select_one('.mm-recipes-nutrition-facts-label__servings span:nth-child(2)')
+        if servings_elem:
+            try:
+                nutrition_data['servings_per_recipe'] = int(servings_elem.text.strip())
+            except (ValueError, TypeError):
+                pass
+        
+        # Extract calories
+        calories_elem = soup.select_one('.mm-recipes-nutrition-facts-label__calories span:nth-child(2)')
+        if calories_elem:
+            try:
+                nutrition_data['calories'] = int(calories_elem.text.strip())
+            except (ValueError, TypeError):
+                pass
+        
+        # Extract nutrition rows
+        nutrition_rows = nutrition_table.select('tbody tr')
+        
+        for row in nutrition_rows:
+            # Skip the Daily Value header row
+            if row.select('.mm-recipes-nutrition-facts-label__table-dv-row'):
+                continue
+            
+            # Find nutrient name and value cells
+            cells = row.select('td')
+            if len(cells) != 2:
+                continue
+            
+            # Extract nutrient details
+            nutrient_name_elem = cells[0].select_one('.mm-recipes-nutrition-facts-label__nutrient-name')
+            if not nutrient_name_elem:
+                continue
+            
+            nutrient_name = nutrient_name_elem.text.strip().lower()
+            # Remove any trailing "postfix" from name
+            nutrient_name = re.sub(r'\s*\*?$', '', nutrient_name)
+            
+            # Extract value and daily value percentage
+            value_text = cells[0].get_text(strip=True).replace(nutrient_name_elem.text.strip(), '').strip()
+            dv_text = cells[1].text.strip().rstrip('%')
+            
+            try:
+                # Parse numeric value
+                if value_text.endswith('g'):
+                    value = float(value_text.rstrip('g'))
+                elif value_text.endswith('mg'):
+                    value = float(value_text.rstrip('mg'))
+                else:
+                    value = float(value_text)
+                
+                # Parse daily value percentage
+                try:
+                    daily_value = float(dv_text)
+                except (ValueError, TypeError):
+                    daily_value = None
+                
+                # Map to nutrition data dictionary
+                if 'total fat' in nutrient_name:
+                    nutrition_data['total_fat'] = value
+                    nutrition_data['daily_values']['total_fat_dv'] = daily_value
+                elif 'saturated fat' in nutrient_name:
+                    nutrition_data['saturated_fat'] = value
+                    nutrition_data['daily_values']['saturated_fat_dv'] = daily_value
+                elif 'cholesterol' in nutrient_name:
+                    nutrition_data['cholesterol'] = value
+                    nutrition_data['daily_values']['cholesterol_dv'] = daily_value
+                elif 'sodium' in nutrient_name:
+                    nutrition_data['sodium'] = value
+                    nutrition_data['daily_values']['sodium_dv'] = daily_value
+                elif 'total carbohydrate' in nutrient_name:
+                    nutrition_data['total_carbohydrate'] = value
+                    nutrition_data['daily_values']['total_carbohydrate_dv'] = daily_value
+                elif 'dietary fiber' in nutrient_name:
+                    nutrition_data['dietary_fiber'] = value
+                    nutrition_data['daily_values']['dietary_fiber_dv'] = daily_value
+                elif 'protein' in nutrient_name:
+                    nutrition_data['protein'] = value
+                    nutrition_data['daily_values']['protein_dv'] = daily_value
+                elif 'potassium' in nutrient_name:
+                    nutrition_data['potassium'] = value
+                    nutrition_data['daily_values']['potassium_dv'] = daily_value
+            
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Could not parse nutrition value for {nutrient_name}: {str(e)}")
+        
+        # Log extracted nutrition data
+        logger.info(f"Extracted comprehensive nutrition data: {nutrition_data}")
+        
+        return nutrition_data
+    
+    except Exception as e:
+        logger.error(f"Error extracting comprehensive nutrition info: {str(e)}")
+        return None
 
     def save_recipe(self, recipe):
         """
@@ -733,6 +803,39 @@ class AllRecipesScraper:
                                 str(ing),
                                 'unknown'
                             ))
+
+                # Insert comprehensive nutrition information
+                if recipe.get('nutrition'):
+                    nutrition = recipe['nutrition']
+                    cursor.execute("""
+                        INSERT INTO recipe_nutrition (
+                            recipe_id, calories, protein, carbs, fat, 
+                            saturated_fat, cholesterol, sodium, 
+                            total_carbohydrate, dietary_fiber,
+                            potassium, servings_per_recipe, 
+                            daily_values, is_calculated
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, 
+                            %s, %s, %s, 
+                            %s, %s, 
+                            %s, %s, %s, %s
+                        )
+                    """, (
+                        recipe_id,
+                        nutrition.get('calories'),
+                        nutrition.get('protein'),
+                        nutrition.get('total_carbohydrate'),
+                        nutrition.get('total_fat'),
+                        nutrition.get('saturated_fat'),
+                        nutrition.get('cholesterol'),
+                        nutrition.get('sodium'),
+                        nutrition.get('total_carbohydrate'),
+                        nutrition.get('dietary_fiber'),
+                        nutrition.get('potassium'),
+                        nutrition.get('servings_per_recipe'),
+                        json.dumps(nutrition.get('daily_values', {})),
+                        True
+                    ))
                 
                 # Insert tags
                 if 'tags' in recipe and recipe['tags']:

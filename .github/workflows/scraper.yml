@@ -1,9 +1,9 @@
 name: Recipe Scraper
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # Allows manual triggering
   schedule:
-    - cron: '0 2 * * 0'
+    - cron: '0 2 * * 0'  # Runs weekly on Sunday at 2 AM UTC
 
 jobs:
   scrape:
@@ -16,23 +16,29 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.10'  # Matches your current setup
       
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          python -m spacy download en_core_web_sm
+          python -m spacy download en_core_web_sm  # Keep this as you’re using spaCy
       
       - name: Test secret access
         env:
-          TEST_SECRET: ${{ secrets.DB_NAME }}
+          TEST_DB_NAME: ${{ secrets.DB_NAME }}
+          TEST_DB_USER: ${{ secrets.DB_USER }}
+          TEST_DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          TEST_DB_HOST: ${{ secrets.DB_HOST }}
+          TEST_DB_PORT: ${{ secrets.DB_PORT }}
+          TEST_DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          echo "Testing DB_NAME secret..."
-          if [ -n "$TEST_SECRET" ]; then
-            echo "✅ Secret is accessible"
+          echo "Testing database secrets..."
+          if [ -n "$TEST_DATABASE_URL" ] || ([ -n "$TEST_DB_NAME" ] && [ -n "$TEST_DB_USER" ] && [ -n "$TEST_DB_PASSWORD" ] && [ -n "$TEST_DB_HOST" ] && [ -n "$TEST_DB_PORT" ]); then
+            echo "✅ Database secrets are accessible"
           else
-            echo "❌ Secret is NOT accessible"
+            echo "❌ Some database secrets are NOT accessible"
+            exit 1
           fi
       
       - name: Run recipe scraper
@@ -46,3 +52,25 @@ jobs:
         run: |
           echo "Running recipe scraper with database config"
           python main.py --source websites --limit 50
+      
+      - name: Upload logs and debug files
+        if: always()  # Runs even if the previous step fails
+        uses: actions/upload-artifact@v3
+        with:
+          name: scraper-logs
+          path: |
+            recipe_scraper.log
+            foodnetwork_error_response_*.html
+            foodnetwork_debug_page_*.html
+            data/recipe_cache/*.html
+      
+      - name: Commit and push changes
+        if: always()
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git add data/* recipe_scraper.log
+          git commit -m "Update scraped recipe data and logs" || echo "No changes to commit"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
