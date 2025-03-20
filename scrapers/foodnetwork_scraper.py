@@ -290,63 +290,83 @@ class FoodNetworkScraper:
         return None
     
     def _extract_recipe_info(self, html_content, url):
-        """Extract structured recipe information from HTML"""
-        try:
-            soup = BeautifulSoup(html_content, 'lxml')
-            
-            title_elem = soup.select_one('h1.o-AssetTitle__a-Headline, h1.recipe-title')
-            title = title_elem.text.strip() if title_elem else "Untitled Recipe"
-            
-            ingredients = []
-            ingredient_elements = soup.select('.o-Ingredients__a-Ingredient--CheckboxLabel, .ingredients-item-name')
-            for elem in ingredient_elements:
-                ingredient_text = elem.text.strip()
-                if ingredient_text and not ingredient_text.startswith('Deselect All'):
-                    ingredients.append(ingredient_text)
-            
-            section_headers = soup.select('.o-Ingredients__a-SubHeadline, .recipe-subsection-title')
-            for header in section_headers:
-                ingredients.append(header.text.strip())
-            
-            instructions = []
-            instruction_elements = soup.select('.o-Method__m-Step, .recipe-directions__list--item')
-            for elem in instruction_elements:
-                instruction_text = elem.text.strip()
-                if instruction_text:
-                    instructions.append(instruction_text)
-            
-            instruction_headers = soup.select('.o-Method__a-SubHeadline, .recipe-subsection-title')
-            for header in instruction_headers:
-                instructions.append(header.text.strip())
-            
-            if not instructions:
-                instruction_paragraphs = soup.select('.o-Method__m-Body p, .recipe-directions__list p')
-                for p in instruction_paragraphs:
-                    p_text = p.text.strip()
-                    if p_text and len(p_text) > 10:
-                        instructions.append(p_text)
-            
-            if len(ingredients) < 2 or len(instructions) < 2:
-                logger.info(f"Skipping recipe {url} - not enough data extracted")
-                return None
-            
-            recipe = {
-                'title': title,
-                'ingredients': ingredients,
-                'instructions': instructions,
-                'source': 'Food Network',
-                'source_url': url,
-                'date_scraped': datetime.now().isoformat(),
-            }
-            
-            return recipe
-            
-        except Exception as e:
-            logger.error(f"Error extracting recipe info from {url}: {str(e)}")
-            return None
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    scraper = FoodNetworkScraper()
-    recipes = scraper.scrape(limit=5)
-    print(f"Scraped {len(recipes)} recipes")
+       """Extract structured recipe information from HTML"""
+       try:
+           soup = BeautifulSoup(html_content, 'lxml')
+           
+           # Extract title
+           title_elem = soup.select_one('h1.o-AssetTitle__a-Headline, h1.recipe-title')
+           title = title_elem.text.strip() if title_elem else "Untitled Recipe"
+           
+           # Extract ingredients
+           ingredients = []
+           ingredient_elements = soup.select('.o-Ingredients__a-Ingredient--CheckboxLabel, .ingredients-item-name')
+           for elem in ingredient_elements:
+               ingredient_text = elem.text.strip()
+               if ingredient_text and not ingredient_text.startswith('Deselect All'):
+                   ingredients.append(ingredient_text)
+           
+           section_headers = soup.select('.o-Ingredients__a-SubHeadline, .recipe-subsection-title')
+           for header in section_headers:
+               ingredients.append(header.text.strip())
+           
+           # Extract instructions
+           instructions = []
+           instruction_elements = soup.select('.o-Method__m-Step, .recipe-directions__list--item')
+           for elem in instruction_elements:
+               instruction_text = elem.text.strip()
+               if instruction_text:
+                   instructions.append(instruction_text)
+           
+           instruction_headers = soup.select('.o-Method__a-SubHeadline, .recipe-subsection-title')
+           for header in instruction_headers:
+               instructions.append(header.text.strip())
+           
+           if not instructions:
+               instruction_paragraphs = soup.select('.o-Method__m-Body p, .recipe-directions__list p')
+               for p in instruction_paragraphs:
+                   p_text = p.text.strip()
+                   if p_text and len(p_text) > 10:
+                       instructions.append(p_text)
+           
+           if len(ingredients) < 2 or len(instructions) < 2:
+               logger.info(f"Skipping recipe {url} - not enough data extracted")
+               return None
+           
+           # Extract complexity (Level)
+           complexity = None
+           level_elem = soup.select_one('.o-RecipeInfo__a-Description, .recipe-level')
+           if level_elem:
+               level_text = level_elem.text.strip()
+               if 'Level:' in level_text:
+                   complexity = level_text.split('Level:')[-1].strip().lower()
+                   # Standardize complexity values
+                   if complexity not in ['easy', 'medium', 'complex']:
+                       complexity = 'medium'  # Default if unrecognized
+           
+           # If complexity not found, infer it
+           if not complexity:
+               num_ingredients = len(ingredients)
+               num_steps = len(instructions)
+               if num_ingredients <= 5 and num_steps <= 3:
+                   complexity = 'easy'
+               elif num_ingredients >= 12 or num_steps >= 8:
+                   complexity = 'complex'
+               else:
+                   complexity = 'medium'
+           
+           recipe = {
+               'title': title,
+               'ingredients': ingredients,
+               'instructions': instructions,
+               'source': 'Food Network',
+               'source_url': url,
+               'date_scraped': datetime.now().isoformat(),
+               'complexity': complexity,  # Add complexity field
+           }
+           
+           return recipe
+           
+       except Exception as e:
+           logger.error(f"Error extracting recipe info from {url}: {str(e)}")
+           return None

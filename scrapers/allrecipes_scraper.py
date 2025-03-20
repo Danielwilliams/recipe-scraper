@@ -657,6 +657,9 @@ class AllRecipesScraper:
                 dv_text = cells[1].text.strip().rstrip('%')
                 
                 try:
+                    # Strip 'm' from value_text before parsing
+                    value_text = value_text.rstrip('m')
+                    
                     # Parse numeric value
                     if value_text.endswith('g'):
                         value = float(value_text.rstrip('g'))
