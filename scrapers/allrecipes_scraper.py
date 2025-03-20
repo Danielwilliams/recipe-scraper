@@ -109,7 +109,7 @@ class AllRecipesScraper:
             logger.error(f"Error extracting nutrition info: {str(e)}")
             return None
 
-    def scrape(self, limit=50):
+    def scrape(self, limit=100):
         """
         Scrape recipes from AllRecipes
         
