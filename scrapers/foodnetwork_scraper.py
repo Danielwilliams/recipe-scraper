@@ -5,6 +5,7 @@ import logging
 import re
 import json
 import random
+import os
 from datetime import datetime
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
@@ -211,7 +212,7 @@ class FoodNetworkScraper:
             logger.error(f"Error getting recipe links from {letter_url}: {str(e)}")
             return recipe_links
 
-def _scrape_with_selenium(self, limit):
+    def _scrape_with_selenium(self, limit):
         """Scrape using Selenium for better browser simulation"""
         recipes = []
         letters = list("abcdefghijklmnopqrstuvwxyz123")
