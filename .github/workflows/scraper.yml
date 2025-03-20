@@ -29,6 +29,11 @@ jobs:
           echo "Installed package versions:"
           pip list | grep -E "requests|beautifulsoup4|cloudscraper|lxml|spacy|psycopg2-binary|python-dotenv"
       
+      - name: Check Python syntax
+        run: |
+          echo "Checking syntax of Python files..."
+          python -m py_compile *.py scrapers/*.py database/*.py processors/*.py || exit 1
+      
       - name: Test secret access
         env:
           TEST_DB_NAME: ${{ secrets.DB_NAME }}
