@@ -168,7 +168,7 @@ class EatingWellScraper:
             logger.error(f"Unexpected error finding recipe links in {url}: {str(e)}")
             return []
 
-    def scrape(self, limit=50):
+    def scrape(self, limit=100):
         """
         Scrape recipes from EatingWell
         
