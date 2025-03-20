@@ -331,8 +331,6 @@ class FoodNetworkScraper:
             
             # Extract metadata (prep time, cook time, total time, servings)
             metadata = {}
-            
-            # Time details
             time_elements = soup.select('.o-RecipeInfo__m-Time .o-RecipeInfo__a-Description')
             for elem in time_elements:
                 label = elem.find_previous_sibling('dt')
@@ -352,13 +350,34 @@ class FoodNetworkScraper:
                         elif 'total' in label_text:
                             metadata['total_time'] = time_value
             
-            # Servings
             servings_elem = soup.select_one('.o-RecipeInfo__a-Description--Yield, .recipe-yield')
             if servings_elem:
                 servings_text = servings_elem.text.strip()
                 servings_match = re.search(r'(\d+)', servings_text)
                 if servings_match:
                     metadata['servings'] = int(servings_match.group(1))
+            
+            # Extract image URL
+            image_url = None
+            
+            # Try Open Graph meta tag
+            og_image = soup.find('meta', {'property': 'og:image'})
+            if og_image:
+                image_url = og_image.get('content')
+            
+            # Try primary image classes
+            if not image_url:
+                img_tag = soup.find('img', {'class': 'o-AssetImage__a-Image'}) or \
+                          soup.find('img', {'class': 'recipe-lead-image'}) or \
+                          soup.find('img', {'class': 'primary-image'})
+                if img_tag:
+                    image_url = img_tag.get('src') or img_tag.get('data-src')
+            
+            # Fallback to any image with recipe-related alt text
+            if not image_url:
+                img_tag = soup.find('img', {'data-src': True, 'alt': lambda x: x and 'recipe' in x.lower()})
+                if img_tag:
+                    image_url = img_tag.get('src') or img_tag.get('data-src')
             
             recipe = {
                 'title': title,
@@ -368,7 +387,8 @@ class FoodNetworkScraper:
                 'source_url': url,
                 'date_scraped': datetime.now().isoformat(),
                 'complexity': complexity,
-                'metadata': metadata,  # Add metadata field
+                'metadata': metadata,
+                'image_url': image_url,  # Add image URL field
             }
             
             return recipe
