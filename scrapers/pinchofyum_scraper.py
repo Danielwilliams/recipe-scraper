@@ -48,7 +48,7 @@ class PinchOfYumScraper:
         
         logger.info(f"Initialized with {len(self.category_urls)} category URLs")
 
-    def scrape(self, limit=50):
+    def scrape(self, limit=300):
         """
         Scrape recipes from Pinch of Yum
         
