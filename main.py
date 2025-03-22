@@ -140,7 +140,7 @@ def main():
         parser.add_argument('--source', choices=['all', 'websites', 'allrecipes', 'eatingwell', 'foodnetwork', 'epicurious', 'pinchofyum', 'simplyrecipes'], 
                             default='websites', help='Source to scrape (default: websites)')
         parser.add_argument('--limit', type=int, default=50,
-                            help='Maximum number of recipes to scrape per source (default: 50)')
+                            help='Maximum number of recipes to scrape per source (default: 100)')
         parser.add_argument('--update-images', action='store_true', 
                             help='Update missing image URLs for existing recipes')
         

@@ -35,7 +35,7 @@ class PinchOfYumScraper:
             'Referer': 'https://pinchofyum.com/'
         }
         
-        # Direct recipe links - these are the main recipe landing pages
+        # Direct recipe list pages - these are the main recipe landing pages
         self.recipe_list_pages = [
             "https://pinchofyum.com/recipes",
             "https://pinchofyum.com/all-recipes"
@@ -67,18 +67,19 @@ class PinchOfYumScraper:
 
     def scrape(self, limit=50):
         """
-        Scrape recipes from Pinch of Yum
+        Scrape recipes from Pinch of Yum with improved category handling
         
         Args:
             limit (int): Maximum number of recipes to scrape
-            
+                
         Returns:
             list: Scraped recipes
         """
         logger.info(f"Starting Pinch of Yum scraping with limit: {limit}")
         recipes = []
+        processed_urls = set()
         
-        # First, try to get recipes from the full recipe list pages
+        # First, try to get recipes from the main recipe list pages
         for list_page in self.recipe_list_pages:
             if len(recipes) >= limit:
                 break
@@ -91,64 +92,175 @@ class PinchOfYumScraper:
                     if len(recipes) >= limit:
                         break
                         
+                    if url in processed_urls:
+                        continue
+                        
+                    processed_urls.add(url)
                     recipe_info = self._scrape_recipe(url)
                     if recipe_info:
                         recipes.append(recipe_info)
-                        
-                # If we found a good number of recipes, stop here
-                if len(recipes) >= limit * 0.5:
-                    break
-                    
             except Exception as e:
                 logger.error(f"Error processing main list page {list_page}: {str(e)}")
                 logger.error(traceback.format_exc())
         
-        # If we still need more recipes, try category pages
+        # Process category URLs - first scrape the category pages for links
+        category_recipe_links = []
+        
         if len(recipes) < limit:
             # Shuffle categories to get a variety
             random.shuffle(self.category_urls)
             
-            # Calculate recipes needed per category
-            remaining = limit - len(recipes)
-            recipes_per_category = max(3, remaining // len(self.category_urls))
-            
             for category_url in self.category_urls:
-                if len(recipes) >= limit:
+                if len(category_recipe_links) >= (limit - len(recipes)) * 2:  # Get extra links in case some fail
                     break
                     
                 try:
-                    logger.info(f"Scraping category page: {category_url}")
-                    recipes_needed = min(recipes_per_category, limit - len(recipes))
+                    # Crawl the category page for recipe links
+                    category_links = self._crawl_category_page(category_url, 20)
+                    category_recipe_links.extend(category_links)
                     
-                    # Get recipe links from this category
-                    recipe_links = self._get_recipe_links_from_category(category_url, recipes_needed)
-                    logger.info(f"Found {len(recipe_links)} recipe links in {category_url}")
-                    
-                    # Process recipe links
-                    category_count = 0
-                    for url in recipe_links:
-                        if len(recipes) >= limit or category_count >= recipes_needed:
-                            logger.info(f"Reached limit for category {category_url}")
-                            break
-                            
-                        recipe_info = self._scrape_recipe(url)
-                        if recipe_info:
-                            recipes.append(recipe_info)
-                            category_count += 1
+                    # Check for subcategories that might need crawling
+                    response = requests.get(category_url, headers=self.headers, timeout=30)
+                    if response.status_code == 200:
+                        soup = BeautifulSoup(response.text, 'lxml')
+                        subcategory_links = []
+                        
+                        # Find potential subcategory links
+                        for link in soup.find_all('a', href=True):
+                            href = link.get('href')
+                            if href and 'pinchofyum.com/recipes/' in href and href != category_url:
+                                if self._is_category_url(href) and href not in self.category_urls:
+                                    subcategory_links.append(href)
+                        
+                        # Limit subcategories to crawl
+                        subcategory_links = subcategory_links[:3]
+                        
+                        # Crawl subcategories
+                        for subcategory_url in subcategory_links:
+                            subcategory_links = self._crawl_category_page(subcategory_url, 10)
+                            category_recipe_links.extend(subcategory_links)
                     
                     # Be polite between categories
-                    time.sleep(random.uniform(3, 5))
+                    time.sleep(random.uniform(2, 3))
                     
                 except Exception as e:
                     logger.error(f"Error processing category {category_url}: {str(e)}")
                     logger.error(traceback.format_exc())
         
+        # Remove duplicates and already processed URLs
+        category_recipe_links = [url for url in category_recipe_links if url not in processed_urls]
+        random.shuffle(category_recipe_links)  # Randomize for variety
+        
+        # Process the recipes found in categories
+        for url in category_recipe_links:
+            if len(recipes) >= limit:
+                break
+                
+            processed_urls.add(url)
+            recipe_info = self._scrape_recipe(url)
+            if recipe_info:
+                recipes.append(recipe_info)
+        
         logger.info(f"Total Pinch of Yum recipes scraped: {len(recipes)}")
         return recipes
+
+    def _is_non_recipe_url(self, url):
+        """
+        Check if URL is likely not a recipe page but a category or index page
+        
+        Args:
+            url (str): URL to check
+            
+        Returns:
+            bool: True if URL is likely not a recipe page
+        """
+        # Parse the URL
+        parsed_url = urlparse(url)
+        path = parsed_url.path.strip('/')
+        path_parts = path.split('/')
+        
+        # Check for typical non-recipe sections
+        non_recipe_patterns = [
+            '/about', '/contact', '/terms', '/privacy', '/faq', 
+            '/page/', '/category/', '/tag/', '/author/',
+            'comment-', '#comment', '#respond', 'pinchofyum.com/page/',
+            'pinchofyum.com/category/', '/wp-', '.com/blog/'
+        ]
+        
+        for pattern in non_recipe_patterns:
+            if pattern in url:
+                return True
+        
+        # Check for recipe directory URLs - these need special handling
+        if url.rstrip('/') in [u.rstrip('/') for u in self.category_urls]:
+            return True
+        
+        # Check for recipe list pages
+        if url.rstrip('/') in [u.rstrip('/') for u in self.recipe_list_pages]:
+            return True
+        
+        # Check for category-style recipe pages (recipes/X where X is a category)
+        if path.startswith('recipes/') and len(path_parts) == 2:
+            # This is a recipe category like /recipes/pasta, not an individual recipe
+            return True
+        
+        # Check for recipe tags
+        recipe_tags = [
+            'pasta', 'vegan', 'vegetarian', 'chicken', 'beef', 'pork', 'seafood',
+            'breakfast', 'lunch', 'dinner', 'dessert', 'snack', 'appetizer',
+            'salad', 'soup', 'stew', 'slow-cooker', 'instant-pot', 'bowl',
+            'casserole', 'cake', 'cookies', 'drink', 'taco', 'pizza',
+            'healthy', 'quick', 'easy', 'gluten-free', 'kid-friendly', 'popular'
+        ]
+        
+        # If the URL pattern is /recipes/tag and tag is in our known recipe tags list
+        if (path.startswith('recipes/') and len(path_parts) == 2 and 
+                path_parts[1].lower() in recipe_tags):
+            return True
+        
+        return False
+
+    def _is_category_url(self, url):
+        """
+        Check if a URL is a category page that should be crawled for recipe links
+        
+        Args:
+            url (str): URL to check
+            
+        Returns:
+            bool: True if URL is a category page
+        """
+        # Parse the URL
+        parsed_url = urlparse(url)
+        path = parsed_url.path.strip('/')
+        path_parts = path.split('/')
+        
+        # Check if this is a known category page
+        if url.rstrip('/') in [u.rstrip('/') for u in self.category_urls]:
+            return True
+        
+        # Check if this is a recipe category page
+        if path.startswith('recipes/') and len(path_parts) == 2:
+            return True
+        
+        # Check for other category indicators
+        category_indicators = [
+            '/category/', 
+            '/tag/',
+            '/recipes/popular',
+            '/recipes/seasonal',
+            '/collections/'
+        ]
+        
+        for indicator in category_indicators:
+            if indicator in url:
+                return True
+        
+        return False
     
     def _scrape_recipe(self, url):
         """
-        Scrape a single recipe URL
+        Scrape a single recipe URL, with special handling for category pages
         
         Args:
             url (str): Recipe URL
@@ -158,6 +270,11 @@ class PinchOfYumScraper:
         """
         try:
             logger.info(f"Scraping recipe: {url}")
+            
+            # Check if this is a category page
+            if self._is_category_url(url):
+                logger.info(f"Found category page: {url} - will extract recipe links instead")
+                return None  # Skip this URL for direct recipe processing
             
             # Skip URLs that don't look like recipe pages
             if self._is_non_recipe_url(url):
@@ -185,39 +302,84 @@ class PinchOfYumScraper:
             logger.error(traceback.format_exc())
             return None
     
-    def _is_non_recipe_url(self, url):
+    def _crawl_category_page(self, url, limit=20):
         """
-        Check if URL is likely not a recipe page
+        Crawl a category page for recipe links
         
         Args:
-            url (str): URL to check
+            url (str): Category page URL
+            limit (int): Maximum number of links to find
             
         Returns:
-            bool: True if URL is likely not a recipe page
+            list: Recipe links
         """
-        # Check for typical non-recipe sections
-        non_recipe_patterns = [
-            '/about', '/contact', '/terms', '/privacy', '/faq', 
-            '/page/', '/category/', '/tag/', '/author/',
-            'comment-', '#comment', '#respond', 'pinchofyum.com/page/',
-            'pinchofyum.com/category/', '/wp-', '.com/blog/'
-        ]
-        
-        for pattern in non_recipe_patterns:
-            if pattern in url:
-                return True
-        
-        # Check for recipe directory URLs
-        if url.rstrip('/') in [u.rstrip('/') for u in self.category_urls]:
-            return True
-        
-        # Check for recipe list pages
-        if url.rstrip('/') in [u.rstrip('/') for u in self.recipe_list_pages]:
-            return True
-        
-        return False
+        recipe_links = []
+        try:
+            logger.info(f"Crawling category page: {url}")
+            
+            # Get the page content
+            response = requests.get(url, headers=self.headers, timeout=30)
+            
+            # Check for valid response
+            if response.status_code != 200:
+                logger.error(f"Error accessing category URL: {url} - Status: {response.status_code}")
+                return recipe_links
+            
+            # Parse the page
+            soup = BeautifulSoup(response.text, 'lxml')
+            
+            # Find all links on the page
+            all_links = soup.find_all('a', href=True)
+            
+            # Base URL for relative links
+            base_url = "https://pinchofyum.com"
+            
+            # Process links
+            for link in all_links:
+                href = link.get('href')
+                
+                # Skip if no href
+                if not href:
+                    continue
+                
+                # Make absolute URL
+                if not href.startswith(('http://', 'https://')):
+                    href = urljoin(base_url, href)
+                
+                # Skip if not from pinchofyum.com
+                if 'pinchofyum.com' not in href:
+                    continue
+                
+                # Skip if it's a category or non-recipe URL
+                if self._is_category_url(href) or self._is_non_recipe_url(href):
+                    continue
+                
+                # Skip if already seen
+                if href in self.seen_recipe_links:
+                    continue
+                
+                # Check if this looks like a recipe page
+                parsed_url = urlparse(href)
+                path = parsed_url.path.strip('/')
+                
+                # Most recipe URLs have a specific structure - they're not just /recipes/tag
+                if len(path.split('/')) >= 2 and not path.startswith('recipes/'):
+                    recipe_links.append(href)
+                    self.seen_recipe_links.add(href)
+                    
+                    # Stop if reached limit
+                    if len(recipe_links) >= limit:
+                        break
+            
+            logger.info(f"Found {len(recipe_links)} recipe links on category page {url}")
+            return recipe_links
+            
+        except Exception as e:
+            logger.error(f"Error crawling category page {url}: {str(e)}")
+            logger.error(traceback.format_exc())
+            return recipe_links
     
-    def _get_recipe_links_from_page(self, page_url, limit=1100):
+    def _get_recipe_links_from_page(self, page_url, limit=50):
         """
         Get recipe links from any page
         
@@ -274,30 +436,14 @@ class PinchOfYumScraper:
                 if href in self.seen_recipe_links:
                     continue
                 
-                # Look for recipe indicators in URL
-                recipe_indicators = [
-                    '/recipe/', 
-                    '/-recipe', 
-                    'pinchofyum.com/recipes/'
-                ]
-                
-                # Skip if no recipe indicators - unless in deeper folders
-                if not any(indicator in href for indicator in recipe_indicators):
-                    # Check if deep enough to likely be a recipe
-                    path = urlparse(href).path
-                    path_parts = [p for p in path.split('/') if p]
+                # Check if it's a recipe page vs a category page
+                if not self._is_category_url(href):
+                    recipe_links.append(href)
+                    self.seen_recipe_links.add(href)
                     
-                    # Most recipe URLs have at least one folder after domain
-                    if len(path_parts) < 1:
-                        continue
-                
-                # Add to recipe links
-                recipe_links.append(href)
-                self.seen_recipe_links.add(href)
-                
-                # Stop if reached limit
-                if len(recipe_links) >= limit:
-                    break
+                    # Stop if reached limit
+                    if len(recipe_links) >= limit:
+                        break
             
             logger.info(f"Found {len(recipe_links)} recipe links on page {page_url}")
             return recipe_links
@@ -306,60 +452,6 @@ class PinchOfYumScraper:
             logger.error(f"Error getting recipe links from {page_url}: {str(e)}")
             logger.error(traceback.format_exc())
             return recipe_links
-    
-    def _get_recipe_links_from_category(self, category_url, limit=50):
-        """
-        Get recipe links from a category page with pagination
-        
-        Args:
-            category_url (str): URL of the category page
-            limit (int): Maximum number of links to return
-            
-        Returns:
-            list: Recipe links
-        """
-        recipe_links = []
-        page = 1
-        max_pages = 5  # Limit to 5 pages per category
-        
-        while len(recipe_links) < limit and page <= max_pages:
-            try:
-                # Construct page URL
-                if page > 1:
-                    # Check if URL ends with slash
-                    if category_url.endswith('/'):
-                        page_url = f"{category_url}page/{page}/"
-                    else:
-                        page_url = f"{category_url}/page/{page}/"
-                else:
-                    page_url = category_url
-                
-                logger.info(f"Fetching page {page}: {page_url}")
-                
-                # Get links from this page
-                new_links = self._get_recipe_links_from_page(page_url, limit - len(recipe_links))
-                
-                # Add new links to our list
-                for link in new_links:
-                    if link not in recipe_links:
-                        recipe_links.append(link)
-                
-                # Move to next page if we found links and need more
-                if new_links and len(recipe_links) < limit:
-                    page += 1
-                    # Be polite
-                    time.sleep(random.uniform(1, 2))
-                else:
-                    # Stop if no links found
-                    break
-                    
-            except Exception as e:
-                logger.error(f"Error fetching recipe links from page {page}: {str(e)}")
-                logger.error(traceback.format_exc())
-                break
-        
-        logger.info(f"Found total {len(recipe_links)} recipe links in category {category_url}")
-        return recipe_links
     
     def _extract_recipe_info(self, html_content, url):
         """
@@ -787,11 +879,11 @@ class PinchOfYumScraper:
                             if isinstance(item, dict) and item.get('@type') == 'Recipe' and item.get('recipeInstructions'):
                                 inst_data = item['recipeInstructions']
                                 if isinstance(inst_data, list):
-                                    for sub_item in inst_data:
-                                        if isinstance(sub_item, str):
-                                            instructions.append(sub_item)
-                                        elif isinstance(sub_item, dict) and sub_item.get('text'):
-                                            instructions.append(sub_item['text'])
+                                    for step in inst_data:
+                                        if isinstance(step, str):
+                                            instructions.append(step)
+                                        elif isinstance(step, dict) and step.get('text'):
+                                            instructions.append(step['text'])
                                 else:
                                     instructions.append(str(inst_data))
                                 return instructions
@@ -804,29 +896,14 @@ class PinchOfYumScraper:
                 # Look for instruction headings
                 headers = container.select('h2, h3, h4, h5')
                 for header in headers:
-                    header_text = header.get_text().lower()
-                    if 'instruction' in header_text or 'direction' in header_text:
+                    if 'instruction' in header.get_text().lower() or 'direction' in header.get_text().lower():
                         # Try to find the instruction list after this header
-                        inst_list = header.find_next('ol')
+                        inst_list = header.find_next('ol') or header.find_next('ul')
                         if inst_list:
                             for li in inst_list.select('li'):
                                 text = li.get_text().strip()
                                 if text:
                                     instructions.append(text)
-                        
-                        # If no ordered list, try paragraphs
-                        if not instructions:
-                            p = header.find_next('p')
-                            step_num = 1
-                            while p and not p.name in ['h2', 'h3', 'h4', 'h5']:
-                                text = p.get_text().strip()
-                                if text:
-                                    # Try to detect if this is a step
-                                    if text.startswith(f"{step_num}.") or len(text) > 20:
-                                        instructions.append(text)
-                                        step_num += 1
-                                p = p.find_next()
-                        
                         break
             except:
                 pass
@@ -835,7 +912,7 @@ class PinchOfYumScraper:
     
     def _extract_metadata(self, soup, container):
         """
-        Extract recipe metadata (prep time, cook time, etc.)
+        Extract recipe metadata like prep time, cook time, etc.
         
         Args:
             soup (BeautifulSoup): Full page soup
@@ -844,105 +921,151 @@ class PinchOfYumScraper:
         Returns:
             dict: Metadata
         """
-        metadata = {}
-        
-        # Try to extract times from HTML
-        time_map = {
-            'prep_time': ['.tasty-recipes-prep-time', '.wprm-recipe-prep-time-container', '.prep-time'],
-            'cook_time': ['.tasty-recipes-cook-time', '.wprm-recipe-cook-time-container', '.cook-time'],
-            'total_time': ['.tasty-recipes-total-time', '.wprm-recipe-total-time-container', '.total-time']
+        metadata = {
+            'prep_time': None,
+            'cook_time': None,
+            'total_time': None,
+            'servings': None,
+            'yield': None,
+            'author': None,
+            'published_date': None
         }
         
-        for meta_key, selectors in time_map.items():
-            for selector in selectors:
-                try:
+        # Try JSON-LD first (most reliable)
+        try:
+            for script in soup.find_all('script', {'type': 'application/ld+json'}):
+                data = json.loads(script.string)
+                recipe_data = None
+                
+                if isinstance(data, dict) and data.get('@type') == 'Recipe':
+                    recipe_data = data
+                elif isinstance(data, list):
+                    for item in data:
+                        if isinstance(item, dict) and item.get('@type') == 'Recipe':
+                            recipe_data = item
+                            break
+                
+                if recipe_data:
+                    # Extract time information
+                    if recipe_data.get('prepTime'):
+                        metadata['prep_time'] = recipe_data['prepTime']
+                    if recipe_data.get('cookTime'):
+                        metadata['cook_time'] = recipe_data['cookTime']
+                    if recipe_data.get('totalTime'):
+                        metadata['total_time'] = recipe_data['totalTime']
+                    
+                    # Extract servings
+                    if recipe_data.get('recipeYield'):
+                        yield_info = recipe_data['recipeYield']
+                        if isinstance(yield_info, list) and len(yield_info) > 0:
+                            metadata['yield'] = yield_info[0]
+                        else:
+                            metadata['yield'] = str(yield_info)
+                        
+                        # Try to extract servings from yield
+                        servings_match = re.search(r'(\d+)\s*servings', str(yield_info), re.IGNORECASE)
+                        if servings_match:
+                            metadata['servings'] = int(servings_match.group(1))
+                    
+                    # Extract author
+                    if recipe_data.get('author'):
+                        author_info = recipe_data['author']
+                        if isinstance(author_info, dict) and author_info.get('name'):
+                            metadata['author'] = author_info['name']
+                        elif isinstance(author_info, list) and len(author_info) > 0:
+                            if isinstance(author_info[0], dict) and author_info[0].get('name'):
+                                metadata['author'] = author_info[0]['name']
+                            else:
+                                metadata['author'] = str(author_info[0])
+                        else:
+                            metadata['author'] = str(author_info)
+                    
+                    # Extract date
+                    if recipe_data.get('datePublished'):
+                        metadata['published_date'] = recipe_data['datePublished']
+                    
+                    break
+        except:
+            pass
+        
+        # Try HTML elements for missing data
+        if not metadata['prep_time']:
+            try:
+                prep_time_selectors = [
+                    '.tasty-recipes-prep-time',
+                    '.wprm-recipe-prep-time-container',
+                    'span:-soup-contains("Prep Time:")',
+                    'div:-soup-contains("Prep Time:")'
+                ]
+                
+                for selector in prep_time_selectors:
                     elem = container.select_one(selector)
                     if elem:
+                        # Clean up the time text
                         time_text = elem.get_text().strip()
-                        minutes = self._parse_time_text(time_text)
-                        if minutes:
-                            metadata[meta_key] = minutes
-                            break
-                except:
-                    pass
-        
-        # Try to extract servings
-        serving_selectors = [
-            '.tasty-recipes-yield',
-            '.wprm-recipe-servings',
-            '.recipe-yield',
-            '.servings'
-        ]
-        
-        for selector in serving_selectors:
-            try:
-                elem = container.select_one(selector)
-                if elem:
-                    yield_text = elem.get_text().strip()
-                    servings_match = re.search(r'(\d+)(?:\s*[-–]\s*(\d+))?', yield_text)
-                    if servings_match:
-                        servings = servings_match.group(2) or servings_match.group(1)
-                        metadata['servings'] = int(servings)
+                        time_match = re.search(r'(\d+)\s*(min|hour|minute)', time_text, re.IGNORECASE)
+                        if time_match:
+                            value = time_match.group(1)
+                            unit = time_match.group(2).lower()
+                            if 'hour' in unit:
+                                metadata['prep_time'] = f'PT{value}H'
+                            else:
+                                metadata['prep_time'] = f'PT{value}M'
                         break
             except:
                 pass
         
-        # Try JSON-LD if metadata is incomplete
-        if not metadata or len(metadata) < 3:
+        if not metadata['cook_time']:
             try:
-                for script in soup.find_all('script', {'type': 'application/ld+json'}):
-                    data = json.loads(script.string)
-                    if isinstance(data, dict) and data.get('@type') == 'Recipe':
-                        # Extract times
-                        for time_type, json_key in [
-                            ('prep_time', 'prepTime'),
-                            ('cook_time', 'cookTime'),
-                            ('total_time', 'totalTime')
-                        ]:
-                            if json_key in data and not metadata.get(time_type):
-                                minutes = self._parse_iso_duration(data[json_key])
-                                if minutes:
-                                    metadata[time_type] = minutes
-                        
-                        # Extract servings
-                        if 'recipeYield' in data and not metadata.get('servings'):
-                            yield_data = data['recipeYield']
-                            if isinstance(yield_data, list):
-                                yield_text = yield_data[0] if yield_data else ""
+                cook_time_selectors = [
+                    '.tasty-recipes-cook-time',
+                    '.wprm-recipe-cook-time-container',
+                    'span:-soup-contains("Cook Time:")',
+                    'div:-soup-contains("Cook Time:")'
+                ]
+                
+                for selector in cook_time_selectors:
+                    elem = container.select_one(selector)
+                    if elem:
+                        # Clean up the time text
+                        time_text = elem.get_text().strip()
+                        time_match = re.search(r'(\d+)\s*(min|hour|minute)', time_text, re.IGNORECASE)
+                        if time_match:
+                            value = time_match.group(1)
+                            unit = time_match.group(2).lower()
+                            if 'hour' in unit:
+                                metadata['cook_time'] = f'PT{value}H'
                             else:
-                                yield_text = str(yield_data)
-                            
-                            servings_match = re.search(r'(\d+)(?:\s*[-–]\s*(\d+))?', yield_text)
-                            if servings_match:
-                                servings = servings_match.group(2) or servings_match.group(1)
-                                metadata['servings'] = int(servings)
-                    
-                    elif isinstance(data, list):
-                        for item in data:
-                            if isinstance(item, dict) and item.get('@type') == 'Recipe':
-                                # Extract times
-                                for time_type, json_key in [
-                                    ('prep_time', 'prepTime'),
-                                    ('cook_time', 'cookTime'),
-                                    ('total_time', 'totalTime')
-                                ]:
-                                    if json_key in item and not metadata.get(time_type):
-                                        minutes = self._parse_iso_duration(item[json_key])
-                                        if minutes:
-                                            metadata[time_type] = minutes
-                                
-                                # Extract servings
-                                if 'recipeYield' in item and not metadata.get('servings'):
-                                    yield_data = item['recipeYield']
-                                    if isinstance(yield_data, list):
-                                        yield_text = yield_data[0] if yield_data else ""
-                                    else:
-                                        yield_text = str(yield_data)
-                                    
-                                    servings_match = re.search(r'(\d+)(?:\s*[-–]\s*(\d+))?', yield_text)
-                                    if servings_match:
-                                        servings = servings_match.group(2) or servings_match.group(1)
-                                        metadata['servings'] = int(servings)
+                                metadata['cook_time'] = f'PT{value}M'
+                        break
+            except:
+                pass
+        
+        if not metadata['servings']:
+            try:
+                servings_selectors = [
+                    '.tasty-recipes-yield',
+                    '.wprm-recipe-servings',
+                    'span:-soup-contains("Servings:")',
+                    'div:-soup-contains("Servings:")',
+                    'span:-soup-contains("Yield:")',
+                    'div:-soup-contains("Yield:")'
+                ]
+                
+                for selector in servings_selectors:
+                    elem = container.select_one(selector)
+                    if elem:
+                        # Clean up the text
+                        text = elem.get_text().strip()
+                        servings_match = re.search(r'(\d+)\s*servings', text, re.IGNORECASE)
+                        if servings_match:
+                            metadata['servings'] = int(servings_match.group(1))
+                            if not metadata['yield']:
+                                metadata['yield'] = text
+                        else:
+                            if not metadata['yield']:
+                                metadata['yield'] = text
+                        break
             except:
                 pass
         
@@ -961,43 +1084,46 @@ class PinchOfYumScraper:
         """
         notes = []
         
-        # Try multiple note selectors
+        # Try common note selectors
         note_selectors = [
-            '.tasty-recipes-notes-body p',
-            '.wprm-recipe-notes p',
-            '.recipe-notes p',
-            'div:-soup-contains("Notes") p'
+            '.tasty-recipes-notes',
+            '.wprm-recipe-notes',
+            '.recipe-notes',
+            'div:-soup-contains("Notes")',
+            'h2:-soup-contains("Notes") + div',
+            'h3:-soup-contains("Notes") + div',
+            'h4:-soup-contains("Notes") + div',
+            'h2:-soup-contains("Tips") + div',
+            'h3:-soup-contains("Tips") + div',
+            'h4:-soup-contains("Tips") + div'
         ]
         
         for selector in note_selectors:
             try:
-                note_elems = container.select(selector)
-                if note_elems:
-                    for elem in note_elems:
-                        text = elem.get_text().strip()
-                        if text and not text.startswith('NOTES'):
-                            notes.append(text)
+                note_elem = container.select_one(selector)
+                if note_elem:
+                    # Clean up note text
+                    for element in note_elem.select('h1, h2, h3, h4, h5, h6'):
+                        # Remove headings from notes
+                        if 'note' in element.get_text().lower() or 'tip' in element.get_text().lower():
+                            element.decompose()
                     
-                    if notes:
-                        break
-            except:
-                pass
-        
-        # Try harder if no notes found
-        if not notes:
-            try:
-                # Look for notes heading
-                headers = container.select('h2, h3, h4, h5')
-                for header in headers:
-                    if 'note' in header.get_text().lower():
-                        # Get paragraphs after this header
-                        p = header.find_next('p')
-                        while p and not p.name in ['h2', 'h3', 'h4', 'h5']:
+                    # Check for list items
+                    list_items = note_elem.select('li')
+                    if list_items:
+                        for li in list_items:
+                            text = li.get_text().strip()
+                            if text:
+                                notes.append(text)
+                    else:
+                        # Get paragraph text
+                        paragraphs = note_elem.select('p') or [note_elem]
+                        for p in paragraphs:
                             text = p.get_text().strip()
                             if text:
                                 notes.append(text)
-                            p = p.find_next()
-                        break
+                    
+                    break
             except:
                 pass
         
@@ -1013,133 +1139,78 @@ class PinchOfYumScraper:
         Returns:
             dict: Nutrition information
         """
-        nutrition_data = {}
+        nutrition = {}
         
-        # Try JSON-LD first for most accurate data
+        # Try JSON-LD first
         try:
             for script in soup.find_all('script', {'type': 'application/ld+json'}):
                 data = json.loads(script.string)
-                if isinstance(data, dict) and data.get('@type') == 'Recipe' and 'nutrition' in data:
-                    nutrition = data['nutrition']
-                    
-                    # Extract key nutrition values
-                    nutrient_map = {
-                        'calories': 'calories',
-                        'fat': 'fatContent',
-                        'carbs': 'carbohydrateContent',
-                        'protein': 'proteinContent',
-                        'fiber': 'fiberContent',
-                        'sugar': 'sugarContent',
-                        'sodium': 'sodiumContent',
-                        'cholesterol': 'cholesterolContent'
-                    }
-                    
-                    for target_key, json_key in nutrient_map.items():
-                        if json_key in nutrition:
-                            value = nutrition[json_key]
-                            if isinstance(value, str):
-                                # Extract number from string like "240 calories"
-                                match = re.search(r'(\d+(\.\d+)?)', value)
-                                if match:
-                                    nutrition_data[target_key] = float(match.group(1))
-                            elif isinstance(value, (int, float)):
-                                nutrition_data[target_key] = float(value)
-                    
-                    if nutrition_data:
-                        return nutrition_data
+                recipe_data = None
                 
+                if isinstance(data, dict) and data.get('@type') == 'Recipe':
+                    recipe_data = data
                 elif isinstance(data, list):
                     for item in data:
-                        if isinstance(item, dict) and item.get('@type') == 'Recipe' and 'nutrition' in item:
-                            nutrition = item['nutrition']
-                            
-                            # Extract key nutrition values
-                            nutrient_map = {
-                                'calories': 'calories',
-                                'fat': 'fatContent',
-                                'carbs': 'carbohydrateContent',
-                                'protein': 'proteinContent',
-                                'fiber': 'fiberContent',
-                                'sugar': 'sugarContent',
-                                'sodium': 'sodiumContent',
-                                'cholesterol': 'cholesterolContent'
-                            }
-                            
-                            for target_key, json_key in nutrient_map.items():
-                                if json_key in nutrition:
-                                    value = nutrition[json_key]
-                                    if isinstance(value, str):
-                                        # Extract number from string like "240 calories"
-                                        match = re.search(r'(\d+(\.\d+)?)', value)
-                                        if match:
-                                            nutrition_data[target_key] = float(match.group(1))
-                                    elif isinstance(value, (int, float)):
-                                        nutrition_data[target_key] = float(value)
-                            
-                            if nutrition_data:
-                                return nutrition_data
+                        if isinstance(item, dict) and item.get('@type') == 'Recipe':
+                            recipe_data = item
+                            break
+                
+                if recipe_data and recipe_data.get('nutrition'):
+                    nutrition_data = recipe_data['nutrition']
+                    
+                    # Extract common nutrition fields
+                    nutrition_fields = [
+                        'calories', 'carbohydrateContent', 'proteinContent', 
+                        'fatContent', 'saturatedFatContent', 'sodiumContent',
+                        'fiberContent', 'sugarContent', 'cholesterolContent'
+                    ]
+                    
+                    for field in nutrition_fields:
+                        if nutrition_data.get(field):
+                            nutrition[field] = nutrition_data[field]
+                    
+                    break
         except:
             pass
         
-        # Try finding nutrition from HTML
-        try:
-            # Look for Nutrifox iframe
-            nutrifox_iframe = soup.select_one('iframe[id^="nutrifox-label-"]')
-            if nutrifox_iframe:
-                # Nutrifox data is usually near the iframe
-                nearby_text = ''
-                
-                # Try to get parent container
-                parent = nutrifox_iframe.parent
-                if parent:
-                    nearby_text = parent.get_text()
-                
-                # Extract key nutrition info using regex
-                nutrient_patterns = {
-                    'calories': r'Calories:?\s*(\d+)',
-                    'fat': r'Fat:?\s*(\d+)g',
-                    'carbs': r'Carbohydrates?:?\s*(\d+)g',
-                    'protein': r'Protein:?\s*(\d+)g',
-                    'fiber': r'Fiber:?\s*(\d+)g',
-                    'sugar': r'Sugar:?\s*(\d+)g',
-                    'sodium': r'Sodium:?\s*(\d+)mg',
-                    'cholesterol': r'Cholesterol:?\s*(\d+)mg'
-                }
-                
-                for nutrient, pattern in nutrient_patterns.items():
-                    match = re.search(pattern, nearby_text, re.IGNORECASE)
-                    if match:
-                        nutrition_data[nutrient] = float(match.group(1))
-        except:
-            pass
-        
-        # Try looking for structured nutrition info
-        if not nutrition_data:
+        # If no structured nutrition info, try HTML
+        if not nutrition:
             try:
-                nutrition_section = soup.select_one('.nutrition-label, .wprm-nutrition-label, .tasty-recipes-nutrition')
-                if nutrition_section:
-                    nutrition_text = nutrition_section.get_text()
-                    
-                    # Extract key nutrition info using regex
-                    nutrient_patterns = {
-                        'calories': r'Calories:?\s*(\d+)',
-                        'fat': r'Fat:?\s*(\d+)g',
-                        'carbs': r'Carbohydrates?:?\s*(\d+)g',
-                        'protein': r'Protein:?\s*(\d+)g',
-                        'fiber': r'Fiber:?\s*(\d+)g',
-                        'sugar': r'Sugar:?\s*(\d+)g',
-                        'sodium': r'Sodium:?\s*(\d+)mg',
-                        'cholesterol': r'Cholesterol:?\s*(\d+)mg'
-                    }
-                    
-                    for nutrient, pattern in nutrient_patterns.items():
-                        match = re.search(pattern, nutrition_text, re.IGNORECASE)
-                        if match:
-                            nutrition_data[nutrient] = float(match.group(1))
+                nutrition_selectors = [
+                    '.tasty-recipes-nutrition',
+                    '.wprm-recipe-nutrition-container',
+                    'div:-soup-contains("Nutrition Information")',
+                    'div:-soup-contains("Nutrition Facts")'
+                ]
+                
+                for selector in nutrition_selectors:
+                    elem = soup.select_one(selector)
+                    if elem:
+                        # Extract full text
+                        nutrition_text = elem.get_text().strip()
+                        
+                        # Try to extract common values
+                        calories_match = re.search(r'calories:?\s*(\d+)', nutrition_text, re.IGNORECASE)
+                        if calories_match:
+                            nutrition['calories'] = calories_match.group(1)
+                        
+                        fat_match = re.search(r'fat:?\s*(\d+)g', nutrition_text, re.IGNORECASE)
+                        if fat_match:
+                            nutrition['fatContent'] = f"{fat_match.group(1)}g"
+                        
+                        carbs_match = re.search(r'carbohydrates:?\s*(\d+)g', nutrition_text, re.IGNORECASE)
+                        if carbs_match:
+                            nutrition['carbohydrateContent'] = f"{carbs_match.group(1)}g"
+                        
+                        protein_match = re.search(r'protein:?\s*(\d+)g', nutrition_text, re.IGNORECASE)
+                        if protein_match:
+                            nutrition['proteinContent'] = f"{protein_match.group(1)}g"
+                        
+                        break
             except:
                 pass
         
-        return nutrition_data
+        return nutrition
     
     def _extract_categories_and_tags(self, soup, container):
         """
@@ -1156,270 +1227,135 @@ class PinchOfYumScraper:
         tags = []
         cuisine = None
         
-        # Try to extract categories
-        category_selectors = [
-            '.tasty-recipes-category',
-            '.wprm-recipe-category',
-            '.recipe-category',
-            '.category-links a'
-        ]
-        
-        for selector in category_selectors:
-            try:
-                elems = container.select(selector)
-                if not elems:
-                    elems = soup.select(selector)
-                
-                if elems:
-                    for elem in elems:
-                        text = elem.get_text().strip()
-                        if text:
-                            if 'Category:' in text:
-                                text = text.split('Category:')[1].strip()
-                            if ',' in text:
-                                for cat in text.split(','):
-                                    cat = cat.strip()
-                                    if cat and cat not in categories:
-                                        categories.append(cat)
-                            else:
-                                if text not in categories:
-                                    categories.append(text)
-            except:
-                pass
-        
-        # Try to extract cuisine
-        cuisine_selectors = [
-            '.tasty-recipes-cuisine',
-            '.wprm-recipe-cuisine',
-            '.recipe-cuisine'
-        ]
-        
-        for selector in cuisine_selectors:
-            try:
-                elem = container.select_one(selector)
-                if elem:
-                    text = elem.get_text().strip()
-                    if text:
-                        if 'Cuisine:' in text:
-                            text = text.split('Cuisine:')[1].strip()
-                        cuisine = text
-                        break
-            except:
-                pass
-        
-        # Try to extract keywords/tags
-        tag_selectors = [
-            '.tasty-recipes-keywords',
-            '.wprm-recipe-keyword',
-            '.recipe-tags',
-            '.tags a'
-        ]
-        
-        for selector in tag_selectors:
-            try:
-                elems = container.select(selector)
-                if not elems:
-                    elems = soup.select(selector)
-                
-                if elems:
-                    for elem in elems:
-                        text = elem.get_text().strip()
-                        if text:
-                            if 'Keywords:' in text:
-                                text = text.split('Keywords:')[1].strip()
-                            if ',' in text:
-                                for tag in text.split(','):
-                                    tag = tag.strip()
-                                    if tag and tag not in tags:
-                                        tags.append(tag)
-                            else:
-                                if text not in tags:
-                                    tags.append(text)
-            except:
-                pass
-        
-        # Try JSON-LD for more data
+        # Try JSON-LD first
         try:
             for script in soup.find_all('script', {'type': 'application/ld+json'}):
                 data = json.loads(script.string)
-                if isinstance(data, dict) and data.get('@type') == 'Recipe':
-                    # Extract categories
-                    if 'recipeCategory' in data:
-                        cat_data = data['recipeCategory']
-                        if isinstance(cat_data, list):
-                            for cat in cat_data:
-                                if cat and cat not in categories:
-                                    categories.append(cat)
-                        elif cat_data and cat_data not in categories:
-                            categories.append(cat_data)
-                    
-                    # Extract cuisine
-                    if not cuisine and 'recipeCuisine' in data:
-                        cuisine_data = data['recipeCuisine']
-                        if isinstance(cuisine_data, list):
-                            cuisine = cuisine_data[0] if cuisine_data else None
-                        else:
-                            cuisine = cuisine_data
-                    
-                    # Extract keywords
-                    if 'keywords' in data:
-                        keyword_data = data['keywords']
-                        if isinstance(keyword_data, str):
-                            for keyword in keyword_data.split(','):
-                                keyword = keyword.strip()
-                                if keyword and keyword not in tags:
-                                    tags.append(keyword)
-                        elif isinstance(keyword_data, list):
-                            for keyword in keyword_data:
-                                if keyword and keyword not in tags:
-                                    tags.append(keyword)
+                recipe_data = None
                 
+                if isinstance(data, dict) and data.get('@type') == 'Recipe':
+                    recipe_data = data
                 elif isinstance(data, list):
                     for item in data:
                         if isinstance(item, dict) and item.get('@type') == 'Recipe':
-                            # Extract categories
-                            if 'recipeCategory' in item:
-                                cat_data = item['recipeCategory']
-                                if isinstance(cat_data, list):
-                                    for cat in cat_data:
-                                        if cat and cat not in categories:
-                                            categories.append(cat)
-                                elif cat_data and cat_data not in categories:
-                                    categories.append(cat_data)
-                            
-                            # Extract cuisine
-                            if not cuisine and 'recipeCuisine' in item:
-                                cuisine_data = item['recipeCuisine']
-                                if isinstance(cuisine_data, list):
-                                    cuisine = cuisine_data[0] if cuisine_data else None
-                                else:
-                                    cuisine = cuisine_data
-                            
-                            # Extract keywords
-                            if 'keywords' in item:
-                                keyword_data = item['keywords']
-                                if isinstance(keyword_data, str):
-                                    for keyword in keyword_data.split(','):
-                                        keyword = keyword.strip()
-                                        if keyword and keyword not in tags:
-                                            tags.append(keyword)
-                                elif isinstance(keyword_data, list):
-                                    for keyword in keyword_data:
-                                        if keyword and keyword not in tags:
-                                            tags.append(keyword)
+                            recipe_data = item
+                            break
+                
+                if recipe_data:
+                    # Extract category
+                    if recipe_data.get('recipeCategory'):
+                        cat_data = recipe_data['recipeCategory']
+                        if isinstance(cat_data, list):
+                            categories.extend(cat_data)
+                        else:
+                            categories.append(cat_data)
+                    
+                    # Extract cuisine
+                    if recipe_data.get('recipeCuisine'):
+                        cuisine_data = recipe_data['recipeCuisine']
+                        if isinstance(cuisine_data, list) and len(cuisine_data) > 0:
+                            cuisine = cuisine_data[0]
+                        else:
+                            cuisine = str(cuisine_data)
+                    
+                    # Extract keywords/tags
+                    if recipe_data.get('keywords'):
+                        keyword_data = recipe_data['keywords']
+                        if isinstance(keyword_data, list):
+                            tags.extend(keyword_data)
+                        elif isinstance(keyword_data, str):
+                            # Split comma-separated tags
+                            for tag in keyword_data.split(','):
+                                clean_tag = tag.strip()
+                                if clean_tag:
+                                    tags.append(clean_tag)
+                    
+                    break
         except:
             pass
         
-        # Add categories to tags if missing
-        for category in categories:
-            if category not in tags:
-                tags.append(category)
+        # Try HTML for tags/categories
+        if not categories or not tags:
+            try:
+                # Look for category and tag links
+                for link in soup.select('a[href*="/category/"], a[href*="/tag/"]'):
+                    text = link.get_text().strip()
+                    
+                    if not text:
+                        continue
+                    
+                    href = link.get('href', '')
+                    
+                    if '/category/' in href and text not in categories:
+                        categories.append(text)
+                    elif '/tag/' in href and text not in tags:
+                        tags.append(text)
+            except:
+                pass
         
-        # Add cuisine to tags if missing
-        if cuisine and cuisine not in tags:
-            tags.append(cuisine)
+        # If we have no cuisine but have categories, try to extract it
+        if not cuisine and categories:
+            cuisine_keywords = [
+                'italian', 'mexican', 'chinese', 'indian', 'french', 'japanese',
+                'thai', 'greek', 'spanish', 'lebanese', 'moroccan', 'turkish',
+                'korean', 'vietnamese', 'american', 'cajun', 'mediterranean',
+                'middle eastern', 'german', 'british', 'irish', 'swedish'
+            ]
+            
+            for category in categories:
+                if category.lower() in cuisine_keywords:
+                    cuisine = category
+                    break
         
         return categories, tags, cuisine
     
     def _determine_complexity(self, ingredients, instructions):
         """
-        Determine recipe complexity based on ingredients and instructions
+        Determine recipe complexity
         
         Args:
             ingredients (list): Recipe ingredients
             instructions (list): Recipe instructions
             
         Returns:
-            str: Complexity level (easy, medium, complex)
+            str: Complexity level (Easy, Medium, Hard)
         """
         # Count ingredients and steps
-        num_ingredients = len(ingredients)
-        num_steps = len(instructions)
+        ingredient_count = len(ingredients)
+        step_count = len(instructions)
         
         # Calculate average instruction length
-        avg_instruction_length = sum(len(step) for step in instructions) / num_steps if num_steps > 0 else 0
+        instruction_lengths = [len(step.split()) for step in instructions]
+        avg_instruction_length = sum(instruction_lengths) / len(instructions) if instructions else 0
         
-        # Look for complex techniques
+        # Check for complex techniques
         complex_techniques = [
-            'sous vide', 'ferment', 'proofing', 'proving', 'knead', 'fold', 'whip',
-            'temper', 'caramelize', 'reduce', 'deglaze', 'sear', 'braise', 'blanch'
+            'sous vide', 'temper', 'caramelize', 'flambe', 'reduce', 'deglaze',
+            'emulsify', 'fold', 'proof', 'ferment', 'render', 'braise', 'broil',
+            'blanch', 'poach', 'sear', 'simmer', 'marinate overnight', 'chill for',
+            'refrigerate for', 'freeze for', 'rest for', 'proof for'
         ]
         
-        instruction_text = ' '.join(instructions).lower()
-        has_complex_technique = any(technique in instruction_text for technique in complex_techniques)
+        has_complex_technique = False
+        for step in instructions:
+            if any(technique in step.lower() for technique in complex_techniques):
+                has_complex_technique = True
+                break
         
         # Determine complexity
-        if (num_ingredients <= 5 and num_steps <= 3 and avg_instruction_length < 100
-                and not has_complex_technique):
-            return 'easy'
-        elif (num_ingredients >= 12 or num_steps >= 8 or avg_instruction_length > 200
-                or has_complex_technique):
-            return 'complex'
+        if ingredient_count <= 5 and step_count <= 5 and avg_instruction_length < 15 and not has_complex_technique:
+            return 'Easy'
+        elif ingredient_count >= 12 or step_count >= 10 or avg_instruction_length > 30 or has_complex_technique:
+            return 'Hard'
         else:
-            return 'medium'
-    
-    def _parse_time_text(self, time_text):
-        """
-        Parse time text like "30 minutes" or "1 hour 15 minutes" into minutes
-        
-        Args:
-            time_text (str): Time text to parse
-            
-        Returns:
-            int: Time in minutes or None
-        """
-        if not time_text:
-            return None
-        
-        total_minutes = 0
-        
-        # Look for hours with various formats
-        hr_patterns = [
-            r'(\d+)\s*(?:hour|hr)s?',
-            r'(\d+)\s*h\b'
-        ]
-        
-        for pattern in hr_patterns:
-            hr_match = re.search(pattern, time_text, re.IGNORECASE)
-            if hr_match:
-                total_minutes += int(hr_match.group(1)) * 60
-                break
-        
-        # Look for minutes with various formats
-        min_patterns = [
-            r'(\d+)\s*(?:minute|min)s?',
-            r'(\d+)\s*m\b'
-        ]
-        
-        for pattern in min_patterns:
-            min_match = re.search(pattern, time_text, re.IGNORECASE)
-            if min_match:
-                total_minutes += int(min_match.group(1))
-                break
-        
-        return total_minutes if total_minutes > 0 else None
-    
-    def _parse_iso_duration(self, iso_duration):
-        """
-        Parse ISO 8601 duration string (e.g. PT1H30M) to minutes
-        
-        Args:
-            iso_duration (str): ISO duration string
-            
-        Returns:
-            int: Duration in minutes or None
-        """
-        if not iso_duration:
-            return None
-        
-        try:
-            # Handle PT1H30M format (ISO 8601 duration)
-            match = re.search(r'PT(?:(\d+)H)?(?:(\d+)M)?', iso_duration)
-            if match:
-                hours = int(match.group(1) or 0)
-                minutes = int(match.group(2) or 0)
-                return hours * 60 + minutes
-            
-            return None
-        except:
-            return None
+            return 'Medium'
+
+# For testing
+if __name__ == "__main__":
+    scraper = PinchOfYumScraper()
+    recipes = scraper.scrape(limit=10)
+    print(f"Scraped {len(recipes)} recipes")
+    for i, recipe in enumerate(recipes):
+        print(f"\nRecipe {i+1}: {recipe['title']}")
+        print(f"Complexity: {recipe['complexity']}")
+        print(f"Source: {recipe['source_url']}")
