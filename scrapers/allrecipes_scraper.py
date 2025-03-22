@@ -102,7 +102,7 @@ class AllRecipesScraper:
         
         return total_minutes if total_minutes > 0 else None
 
-    def scrape(self, limit=100):
+    def scrape(self, limit=200):
         """
         Scrape recipes from AllRecipes
         

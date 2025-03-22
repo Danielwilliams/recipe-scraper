@@ -59,6 +59,7 @@ RECIPE_WEBSITES = [
     {'name': 'Epicurious', 'base_url': 'https://www.epicurious.com/recipes-menus', 'pages': 3},
     {'name': 'EatingWell', 'base_url': 'https://www.eatingwell.com/recipes/', 'pages': 5},
     {'name': 'Pinch of Yum', 'base_url': 'https://pinchofyum.com/recipes/', 'pages': 5},
+    {'name': 'SimplyRecipes', 'base_url': 'https://www.simplyrecipes.com/recipes/', 'pages': 5},
 ]
 
 # Logging

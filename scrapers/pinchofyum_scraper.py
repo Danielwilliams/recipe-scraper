@@ -140,25 +140,45 @@ class PinchOfYumScraper:
                 
                 soup = BeautifulSoup(response.text, 'lxml')
                 
-                # Find all recipe article elements
-                articles = soup.select('article.post')
+                # Try multiple selector patterns to find recipe links
+                link_selectors = [
+                    'article.post .post-header a',               # Try header links
+                    'article.post a.post-image',                 # Try image links
+                    'article.post a.post-thumbnail',             # Try thumbnail links
+                    '.archive-post a[href*="pinchofyum.com"]',   # Generic archive links
+                    '.content-area article a[href*="/recipe/"]',  # Links containing "recipe"
+                    '.site-content a[href*="pinchofyum.com"]'    # Any site content links
+                ]
                 
-                if not articles:
-                    logger.warning(f"No articles found on page {page_url}")
-                    break
+                found_links = False
+                for selector in link_selectors:
+                    links = soup.select(selector)
+                    logger.info(f"Found {len(links)} links with selector '{selector}'")
+                    
+                    if links:
+                        found_links = True
+                        for link in links:
+                            href = link.get('href')
+                            if href and 'pinchofyum.com' in href:
+                                if href not in recipe_links:
+                                    recipe_links.append(href)
+                                    if len(recipe_links) >= limit:
+                                        break
                 
-                for article in articles:
-                    # Find the post link
-                    link_elem = article.select_one('a.post-featured-img, h2.post-title a')
-                    if link_elem:
-                        href = link_elem.get('href')
-                        if href and 'pinchofyum.com' in href:
-                            recipe_links.append(href)
-                            if len(recipe_links) >= limit:
-                                break
+                # If none of our selectors worked, try a more generic approach
+                if not found_links:
+                    # Get all links on the page and filter for those that look like recipes
+                    all_links = soup.find_all('a', href=True)
+                    for link in all_links:
+                        href = link.get('href')
+                        if href and 'pinchofyum.com' in href and ('/recipe/' in href or '/recipes/' in href):
+                            if href not in recipe_links:
+                                recipe_links.append(href)
+                                if len(recipe_links) >= limit:
+                                    break
                 
-                # If no more articles or reached limit, stop pagination
-                if len(articles) < 10 or len(recipe_links) >= limit:
+                # If we found no links or less than expected and this isn't the last page, continue to next page
+                if len(links) < 10 and page > 1:
                     break
                 
                 page += 1
@@ -168,8 +188,10 @@ class PinchOfYumScraper:
                 
             except Exception as e:
                 logger.error(f"Error fetching recipes from page {page}: {str(e)}")
+                logger.error(traceback.format_exc())
                 break
         
+        logger.info(f"Found {len(recipe_links)} recipe links in {category_url}")
         return recipe_links
 
     def _extract_recipe_info(self, html_content, url):

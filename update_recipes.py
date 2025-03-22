@@ -14,6 +14,8 @@ from scrapers.allrecipes_scraper import AllRecipesScraper
 from scrapers.eatingwell_scraper import EatingWellScraper
 from scrapers.foodnetwork_scraper import FoodNetworkScraper
 from scrapers.epicurious_scraper import EpicuriousScraper
+from scrapers.pinchofyum_scraper import PinchOfYumScraper
+from scrapers.simplyrecipes_scraper import SimplyRecipesScraper
 
 # Configure logging
 logging.basicConfig(
@@ -215,7 +217,7 @@ def main():
                       help='Update recipes with missing servings info')
     parser.add_argument('--older-than', type=int, metavar='DAYS',
                       help='Update recipes older than specified days')
-    parser.add_argument('--source', choices=['AllRecipes', 'EatingWell', 'Food Network', 'Epicurious'],
+    parser.add_argument('--source', choices=['AllRecipes', 'EatingWell', 'Food Network', 'Epicurious', 'Pinch of Yum', 'SimplyRecipes'],
                       help='Update recipes from a specific source')
     parser.add_argument('--limit', type=int, default=100,
                       help='Maximum number of recipes to update (default: 100)')
@@ -229,7 +231,9 @@ def main():
         'AllRecipes': AllRecipesScraper(),
         'EatingWell': EatingWellScraper(),
         'Food Network': FoodNetworkScraper(),
-        'Epicurious': EpicuriousScraper()
+        'Epicurious': EpicuriousScraper(),
+        'Pinch of Yum': PinchOfYumScraper(),
+        'SimplyRecipes': SimplyRecipesScraper()
     }
     
     # Build criteria dictionary from arguments

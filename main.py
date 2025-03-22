@@ -9,6 +9,9 @@ from scrapers.eatingwell_scraper import EatingWellScraper
 from scrapers.foodnetwork_scraper import FoodNetworkScraper
 from scrapers.epicurious_scraper import EpicuriousScraper
 from scrapers.pinchofyum_scraper import PinchOfYumScraper
+from scrapers.simplyrecipes_scraper import SimplyRecipesScraper
+from database.db_connector import get_db_connection
+from psycopg2.extras import RealDictCursor
 
 
 # Configure logging
@@ -62,7 +65,8 @@ def update_image_urls():
             'EatingWell': EatingWellScraper(),
             'Food Network': FoodNetworkScraper(),
             'Epicurious': EpicuriousScraper(),
-            'Pinch of Yum': PinchOfYumScraper()
+            'Pinch of Yum': PinchOfYumScraper(),
+            'SimplyRecipes': SimplyRecipesScraper()
         }
         
         storage = RecipeStorage()
@@ -135,7 +139,7 @@ def main():
         
         # Parse command line arguments
         parser = argparse.ArgumentParser(description="Recipe scraper")
-        parser.add_argument('--source', choices=['all', 'websites', 'allrecipes', 'eatingwell', 'foodnetwork', 'epicurious', 'pinchofyum'], 
+        parser.add_argument('--source', choices=['all', 'websites', 'allrecipes', 'eatingwell', 'foodnetwork', 'epicurious', 'pinchofyum', 'simplyrecipes'], 
                             default='websites', help='Source to scrape (default: websites)')
         parser.add_argument('--limit', type=int, default=50,
                             help='Maximum number of recipes to scrape per source (default: 50)')
@@ -158,7 +162,8 @@ def main():
                 ('EatingWell', EatingWellScraper()),
                 ('FoodNetwork', FoodNetworkScraper()),
                 ('Epicurious', EpicuriousScraper()),
-                ('PinchOfYum', PinchOfYumScraper())
+                ('PinchOfYum', PinchOfYumScraper()),
+                ('SimplyRecipes', SimplyRecipesScraper())
             ]
         elif args.source == 'allrecipes':
             scrapers = [('AllRecipes', AllRecipesScraper())]
@@ -170,7 +175,8 @@ def main():
             scrapers = [('Epicurious', EpicuriousScraper())]
         elif args.source == 'pinchofyum':
             scrapers = [('PinchOfYum', PinchOfYumScraper())]
-
+        elif args.source == 'simplyrecipes':
+            scrapers = [('SimplyRecipes', SimplyRecipesScraper())]
         
         # Scrape from each source
         for scraper_name, scraper in scrapers:

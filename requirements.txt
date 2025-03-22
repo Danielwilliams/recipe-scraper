@@ -9,3 +9,4 @@ spacy==3.7.4
 cloudscraper>=1.2.71
 selenium>=4.0.0
 webdriver-manager>=3.0.0
+pandas>=2.0.0

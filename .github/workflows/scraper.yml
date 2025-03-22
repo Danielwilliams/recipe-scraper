@@ -63,6 +63,18 @@ jobs:
           echo "Running recipe scraper with database config"
           python main.py --source websites --limit 50 || echo "Scraper failed, continuing to save logs"
       
+      - name: Run SimplyRecipes scraper specifically
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+        run: |
+          echo "Running SimplyRecipes scraper specifically"
+          python main.py --source simplyrecipes --limit 20 || echo "SimplyRecipes scraper failed, continuing to save logs"
+      
       - name: Upload logs and debug files
         if: always()
         uses: actions/upload-artifact@v4
@@ -70,6 +82,7 @@ jobs:
           name: scraper-logs
           path: |
             recipe_scraper.log
+            simplyrecipes_scraper.log
             foodnetwork_error_response_*.html
             foodnetwork_debug_page_*.html
             data/recipe_cache/*.html
@@ -80,7 +93,7 @@ jobs:
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
-          git add data/* recipe_scraper.log || echo "No files to add"
+          git add data/* recipe_scraper.log simplyrecipes_scraper.log || echo "No files to add"
           git commit -m "Update scraped recipe data and logs" || echo "No changes to commit"
           git push || echo "Push failed, likely no changes"
         env:
