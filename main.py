@@ -7,7 +7,6 @@ from database.recipe_storage import RecipeStorage
 from scrapers.allrecipes_scraper import AllRecipesScraper
 from scrapers.eatingwell_scraper import EatingWellScraper
 from scrapers.foodnetwork_scraper import FoodNetworkScraper
-from scrapers.epicurious_scraper import EpicuriousScraper
 from scrapers.pinchofyum_scraper import PinchOfYumScraper
 from scrapers.simplyrecipes_scraper import SimplyRecipesScraper
 from database.db_connector import get_db_connection
@@ -61,10 +60,9 @@ def update_image_urls():
         
         # Initialize scrapers
         scrapers = {
-         #   'AllRecipes': AllRecipesScraper(),
-         #   'EatingWell': EatingWellScraper(),
-          #  'Food Network': FoodNetworkScraper(),
-           # 'Epicurious': EpicuriousScraper(),
+            #'AllRecipes': AllRecipesScraper(),
+            #'EatingWell': EatingWellScraper(),
+            #'Food Network': FoodNetworkScraper(),
             'Pinch of Yum': PinchOfYumScraper(),
             'SimplyRecipes': SimplyRecipesScraper()
         }
@@ -158,21 +156,18 @@ def main():
         
         if args.source in ['all', 'websites']:
             scrapers = [
-                ('AllRecipes', AllRecipesScraper()),
-                ('EatingWell', EatingWellScraper()),
-                ('FoodNetwork', FoodNetworkScraper()),
-                ('Epicurious', EpicuriousScraper()),
+                #('AllRecipes', AllRecipesScraper()),
+                #('EatingWell', EatingWellScraper()),
+                #('FoodNetwork', FoodNetworkScraper()),
                 ('PinchOfYum', PinchOfYumScraper()),
                 ('SimplyRecipes', SimplyRecipesScraper())
             ]
-        elif args.source == 'allrecipes':
-            scrapers = [('AllRecipes', AllRecipesScraper())]
-        elif args.source == 'eatingwell':
-            scrapers = [('EatingWell', EatingWellScraper())]
-        elif args.source == 'foodnetwork':
-            scrapers = [('FoodNetwork', FoodNetworkScraper())]
-        elif args.source == 'epicurious':
-            scrapers = [('Epicurious', EpicuriousScraper())]
+        #elif args.source == 'allrecipes':
+        #    scrapers = [('AllRecipes', AllRecipesScraper())]
+        #elif args.source == 'eatingwell':
+        #    scrapers = [('EatingWell', EatingWellScraper())]
+        #elif args.source == 'foodnetwork':
+        #    scrapers = [('FoodNetwork', FoodNetworkScraper())]
         elif args.source == 'pinchofyum':
             scrapers = [('PinchOfYum', PinchOfYumScraper())]
         elif args.source == 'simplyrecipes':
