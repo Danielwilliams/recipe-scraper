@@ -61,10 +61,10 @@ def update_image_urls():
         
         # Initialize scrapers
         scrapers = {
-            'AllRecipes': AllRecipesScraper(),
-            'EatingWell': EatingWellScraper(),
-            'Food Network': FoodNetworkScraper(),
-            'Epicurious': EpicuriousScraper(),
+         #   'AllRecipes': AllRecipesScraper(),
+         #   'EatingWell': EatingWellScraper(),
+          #  'Food Network': FoodNetworkScraper(),
+           # 'Epicurious': EpicuriousScraper(),
             'Pinch of Yum': PinchOfYumScraper(),
             'SimplyRecipes': SimplyRecipesScraper()
         }
