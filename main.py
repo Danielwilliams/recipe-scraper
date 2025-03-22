@@ -7,6 +7,8 @@ from database.recipe_storage import RecipeStorage
 from scrapers.allrecipes_scraper import AllRecipesScraper
 from scrapers.eatingwell_scraper import EatingWellScraper
 from scrapers.foodnetwork_scraper import FoodNetworkScraper
+from scrapers.epicurious_scraper import EpicuriousScraper
+from scrapers.pinchofyum_scraper import PinchOfYumScraper
 
 
 # Configure logging
@@ -58,7 +60,9 @@ def update_image_urls():
         scrapers = {
             'AllRecipes': AllRecipesScraper(),
             'EatingWell': EatingWellScraper(),
-            'Food Network': FoodNetworkScraper()
+            'Food Network': FoodNetworkScraper(),
+            'Epicurious': EpicuriousScraper(),
+            'Pinch of Yum': PinchOfYumScraper()
         }
         
         storage = RecipeStorage()
@@ -131,7 +135,7 @@ def main():
         
         # Parse command line arguments
         parser = argparse.ArgumentParser(description="Recipe scraper")
-        parser.add_argument('--source', choices=['all', 'websites', 'allrecipes', 'eatingwell', 'foodnetwork', 'epicurious'], 
+        parser.add_argument('--source', choices=['all', 'websites', 'allrecipes', 'eatingwell', 'foodnetwork', 'epicurious', 'pinchofyum'], 
                             default='websites', help='Source to scrape (default: websites)')
         parser.add_argument('--limit', type=int, default=50,
                             help='Maximum number of recipes to scrape per source (default: 50)')
@@ -153,6 +157,8 @@ def main():
                 ('AllRecipes', AllRecipesScraper()),
                 ('EatingWell', EatingWellScraper()),
                 ('FoodNetwork', FoodNetworkScraper()),
+                ('Epicurious', EpicuriousScraper()),
+                ('PinchOfYum', PinchOfYumScraper())
             ]
         elif args.source == 'allrecipes':
             scrapers = [('AllRecipes', AllRecipesScraper())]
@@ -160,6 +166,10 @@ def main():
             scrapers = [('EatingWell', EatingWellScraper())]
         elif args.source == 'foodnetwork':
             scrapers = [('FoodNetwork', FoodNetworkScraper())]
+        elif args.source == 'epicurious':
+            scrapers = [('Epicurious', EpicuriousScraper())]
+        elif args.source == 'pinchofyum':
+            scrapers = [('PinchOfYum', PinchOfYumScraper())]
 
         
         # Scrape from each source
