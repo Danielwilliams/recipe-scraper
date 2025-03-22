@@ -54,7 +54,7 @@ class SimplyRecipesScraper:
         
         logger.info(f"Initialized with {len(self.category_urls)} category URLs")
     
-    def scrape(self, limit=300):
+    def scrape(self, limit=1100):
         """
         Scrape recipes from SimplyRecipes
         

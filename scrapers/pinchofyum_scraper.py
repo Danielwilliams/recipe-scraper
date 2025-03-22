@@ -217,7 +217,7 @@ class PinchOfYumScraper:
         
         return False
     
-    def _get_recipe_links_from_page(self, page_url, limit=50):
+    def _get_recipe_links_from_page(self, page_url, limit=1100):
         """
         Get recipe links from any page
         
