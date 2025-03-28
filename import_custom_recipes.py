@@ -138,6 +138,10 @@ def save_recipe(recipe):
     """Save a recipe to the database"""
     conn = get_db_connection()
     try:
+        title = recipe['title']
+        print(f"Attempting to save recipe with title: '{title}' (Length: {len(title)} characters)")
+
+    try:
         with conn.cursor() as cursor:
             # Check if recipe already exists
             cursor.execute("""
