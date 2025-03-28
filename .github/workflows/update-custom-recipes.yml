@@ -46,6 +46,14 @@ jobs:
           DATABASE_URL=${{ secrets.DATABASE_URL }}
           EOL
       
+      - name: Debug directory
+        if: ${{ github.event.inputs.operation == 'update_from_file' }}
+        run: |
+          echo "Current directory: $(pwd)"
+          ls -la
+          echo "Data directory contents:"
+          ls -la data/
+      
       - name: Run update from file
         if: ${{ github.event.inputs.operation == 'update_from_file' }}
         run: |
