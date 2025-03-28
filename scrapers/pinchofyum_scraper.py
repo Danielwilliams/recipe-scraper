@@ -557,6 +557,33 @@ class PinchOfYumScraper:
             logger.error(f"Error extracting recipe info from {url}: {str(e)}")
             logger.error(traceback.format_exc())
             return None
+
+    def _parse_iso_duration(self, iso_duration):
+      """
+        Parse ISO 8601 duration to minutes
+        
+        Args:
+            iso_duration (str): ISO 8601 duration string (e.g., 'PT15M')
+            
+        Returns:
+            int: Duration in minutes or None if parsing fails
+        """
+        if not iso_duration:
+            return None
+        
+        try:
+            # Handle PT1H30M format (ISO 8601 duration)
+            hours_match = re.search(r'PT(?:(\d+)H)?', iso_duration)
+            minutes_match = re.search(r'PT(?:[^M]*?)(\d+)M', iso_duration)
+            
+            hours = int(hours_match.group(1)) if hours_match and hours_match.group(1) else 0
+            minutes = int(minutes_match.group(1)) if minutes_match and minutes_match.group(1) else 0
+            
+            total_minutes = hours * 60 + minutes
+            return total_minutes if total_minutes > 0 else None
+        except Exception as e:
+            logger.error(f"Error parsing ISO duration {iso_duration}: {str(e)}")
+            return None
     
     def _verify_recipe_page(self, soup, url):
         """
@@ -944,49 +971,49 @@ class PinchOfYumScraper:
         return instructions
     
     def _extract_metadata(self, soup, container):
-        """
-        Extract recipe metadata like prep time, cook time, etc.
-        
-        Args:
-            soup (BeautifulSoup): Full page soup
-            container (BeautifulSoup element): Recipe container
-            
-        Returns:
-            dict: Metadata
-        """
-        metadata = {
-            'prep_time': None,
-            'cook_time': None,
-            'total_time': None,
-            'servings': None,
-            'yield': None,
-            'author': None,
-            'published_date': None
-        }
-        
-        # Try JSON-LD first (most reliable)
-        try:
-            for script in soup.find_all('script', {'type': 'application/ld+json'}):
-                data = json.loads(script.string)
-                recipe_data = None
-                
-                if isinstance(data, dict) and data.get('@type') == 'Recipe':
-                    recipe_data = data
-                elif isinstance(data, list):
-                    for item in data:
-                        if isinstance(item, dict) and item.get('@type') == 'Recipe':
-                            recipe_data = item
-                            break
-                
-                if recipe_data:
-                    # Extract time information
-                    if recipe_data.get('prepTime'):
-                        metadata['prep_time'] = recipe_data['prepTime']
-                    if recipe_data.get('cookTime'):
-                        metadata['cook_time'] = recipe_data['cookTime']
-                    if recipe_data.get('totalTime'):
-                        metadata['total_time'] = recipe_data['totalTime']
-                    
+          """
+          Extract recipe metadata like prep time, cook time, etc.
+          
+          Args:
+              soup (BeautifulSoup): Full page soup
+              container (BeautifulSoup element): Recipe container
+              
+          Returns:
+              dict: Metadata
+          """
+          metadata = {
+              'prep_time': None,
+              'cook_time': None,
+              'total_time': None,
+              'servings': None,
+              'yield': None,
+              'author': None,
+              'published_date': None
+          }
+          
+          # Try JSON-LD first (most reliable)
+          try:
+              for script in soup.find_all('script', {'type': 'application/ld+json'}):
+                  data = json.loads(script.string)
+                  recipe_data = None
+                  
+                  if isinstance(data, dict) and data.get('@type') == 'Recipe':
+                      recipe_data = data
+                  elif isinstance(data, list):
+                      for item in data:
+                          if isinstance(item, dict) and item.get('@type') == 'Recipe':
+                              recipe_data = item
+                              break
+                  
+                  if recipe_data:
+                      # Extract time information - convert ISO durations to minutes
+                      if recipe_data.get('prepTime'):
+                          metadata['prep_time'] = self._parse_iso_duration(recipe_data['prepTime'])
+                      if recipe_data.get('cookTime'):
+                          metadata['cook_time'] = self._parse_iso_duration(recipe_data['cookTime'])
+                      if recipe_data.get('totalTime'):
+                          metadata['total_time'] = self._parse_iso_duration(recipe_data['totalTime'])
+                          
                     # Extract servings
                     if recipe_data.get('recipeYield'):
                         yield_info = recipe_data['recipeYield']
