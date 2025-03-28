@@ -559,7 +559,7 @@ class PinchOfYumScraper:
             return None
 
     def _parse_iso_duration(self, iso_duration):
-      """
+        """
         Parse ISO 8601 duration to minutes
         
         Args:
@@ -584,7 +584,7 @@ class PinchOfYumScraper:
         except Exception as e:
             logger.error(f"Error parsing ISO duration {iso_duration}: {str(e)}")
             return None
-    
+        
     def _verify_recipe_page(self, soup, url):
         """
         Verify this is actually a recipe page
