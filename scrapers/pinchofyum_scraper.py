@@ -558,32 +558,6 @@ class PinchOfYumScraper:
             logger.error(traceback.format_exc())
             return None
 
-    def _parse_iso_duration(self, iso_duration):
-        """
-        Parse ISO 8601 duration to minutes
-        
-        Args:
-            iso_duration (str): ISO 8601 duration string (e.g., 'PT15M')
-            
-        Returns:
-            int: Duration in minutes or None if parsing fails
-        """
-        if not iso_duration:
-            return None
-        
-        try:
-            # Handle PT1H30M format (ISO 8601 duration)
-            hours_match = re.search(r'PT(?:(\d+)H)?', iso_duration)
-            minutes_match = re.search(r'PT(?:[^M]*?)(\d+)M', iso_duration)
-            
-            hours = int(hours_match.group(1)) if hours_match and hours_match.group(1) else 0
-            minutes = int(minutes_match.group(1)) if minutes_match and minutes_match.group(1) else 0
-            
-            total_minutes = hours * 60 + minutes
-            return total_minutes if total_minutes > 0 else None
-        except Exception as e:
-            logger.error(f"Error parsing ISO duration {iso_duration}: {str(e)}")
-            return None
         
     def _verify_recipe_page(self, soup, url):
         """
