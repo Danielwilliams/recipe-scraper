@@ -65,6 +65,40 @@ class PinchOfYumScraper:
         
         logger.info(f"Initialized with {len(self.category_urls)} category URLs")
 
+    def _find_recipe_links_from_carousel(self, html_content):
+        """Extract recipe links from carousel elements in the HTML"""
+        soup = BeautifulSoup(html_content, 'lxml')
+        recipe_links = []
+        
+        # Look for carousel items or article elements containing recipes
+        carousel_items = soup.select('.carousel-cell article a, .flickity-slider article a')
+        
+        base_url = "https://pinchofyum.com"
+        
+        for item in carousel_items:
+            href = item.get('href')
+            if href:
+                # Make absolute URL
+                if not href.startswith('http'):
+                    href = urljoin(base_url, href)
+                
+                # Skip if not from pinchofyum.com
+                if 'pinchofyum.com' not in href:
+                    continue
+                    
+                # Skip category pages
+                if self._is_category_url(href) or self._is_non_recipe_url(href):
+                    continue
+                    
+                # Skip if already seen
+                if href in self.seen_recipe_links:
+                    continue
+                    
+                recipe_links.append(href)
+                self.seen_recipe_links.add(href)
+        
+        return recipe_links
+
     def scrape(self, limit=50):
         """
         Scrape recipes from Pinch of Yum with improved category handling
@@ -325,17 +359,22 @@ class PinchOfYumScraper:
                 logger.error(f"Error accessing category URL: {url} - Status: {response.status_code}")
                 return recipe_links
             
-            # Parse the page
+            # First try to extract from carousel elements
+            carousel_links = self._find_recipe_links_from_carousel(response.text)
+            recipe_links.extend(carousel_links)
+            logger.info(f"Found {len(carousel_links)} recipe links from carousel on {url}")
+            
+            # Parse the page to find additional links
             soup = BeautifulSoup(response.text, 'lxml')
             
-            # Find all links on the page
-            all_links = soup.find_all('a', href=True)
+            # Find all article links that might be recipes
+            article_links = soup.select('article.post a[href], .post-item a[href], .recipe-card a[href]')
             
             # Base URL for relative links
             base_url = "https://pinchofyum.com"
             
-            # Process links
-            for link in all_links:
+            # Process article links
+            for link in article_links:
                 href = link.get('href')
                 
                 # Skip if no href
@@ -343,7 +382,7 @@ class PinchOfYumScraper:
                     continue
                 
                 # Make absolute URL
-                if not href.startswith(('http://', 'https://')):
+                if not href.startswith('http'):
                     href = urljoin(base_url, href)
                 
                 # Skip if not from pinchofyum.com
@@ -358,18 +397,12 @@ class PinchOfYumScraper:
                 if href in self.seen_recipe_links:
                     continue
                 
-                # Check if this looks like a recipe page
-                parsed_url = urlparse(href)
-                path = parsed_url.path.strip('/')
+                recipe_links.append(href)
+                self.seen_recipe_links.add(href)
                 
-                # Most recipe URLs have a specific structure - they're not just /recipes/tag
-                if len(path.split('/')) >= 2 and not path.startswith('recipes/'):
-                    recipe_links.append(href)
-                    self.seen_recipe_links.add(href)
-                    
-                    # Stop if reached limit
-                    if len(recipe_links) >= limit:
-                        break
+                # Stop if reached limit
+                if len(recipe_links) >= limit:
+                    break
             
             logger.info(f"Found {len(recipe_links)} recipe links on category page {url}")
             return recipe_links
