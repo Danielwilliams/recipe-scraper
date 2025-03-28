@@ -1,0 +1,145 @@
+name: Update Recipe Database
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'Operation to perform'
+        required: true
+        default: 'list'
+        type: choice
+        options:
+          - list
+          - search
+          - update_image
+          - update_title
+          - update_complexity
+          - batch_update
+      recipe_id:
+        description: 'Recipe ID (for single-recipe operations)'
+        required: false
+        type: string
+      new_value:
+        description: 'New value (for update operations)'
+        required: false
+        type: string
+      search_term:
+        description: 'Search term (for search operation)'
+        required: false
+        type: string
+      csv_path:
+        description: 'Path to CSV file (for batch update)'
+        required: false
+        default: 'updates/image_updates.csv'
+        type: string
+
+jobs:
+  update_recipes:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install psycopg2-binary python-dotenv
+      
+      - name: Create batch update CSV if needed
+        if: ${{ github.event.inputs.operation == 'batch_update' }}
+        run: |
+          mkdir -p updates
+          # Check if the CSV file already exists in the repo
+          if [ ! -f "${{ github.event.inputs.csv_path }}" ]; then
+            # Create an empty CSV as a placeholder
+            echo "# recipe_id,new_image_url" > ${{ github.event.inputs.csv_path }}
+            echo "# Add your entries below this line" >> ${{ github.event.inputs.csv_path }}
+          fi
+      
+      - name: Create runner script
+        run: |
+          cat > run_recipe_operation.py <<EOL
+          import sys
+          import os
+          from update_recipes import (
+              list_recipes, 
+              update_recipe_image, 
+              update_recipe_title, 
+              update_recipe_complexity,
+              batch_update_image_urls
+          )
+
+          operation = sys.argv[1]
+          
+          if operation == 'list':
+              list_recipes(limit=20, offset=0)
+          
+          elif operation == 'search':
+              search_term = sys.argv[2] if len(sys.argv) > 2 else None
+              if search_term:
+                  list_recipes(search_term=search_term)
+              else:
+                  print("No search term provided")
+          
+          elif operation == 'update_image':
+              recipe_id = int(sys.argv[2])
+              new_image_url = sys.argv[3]
+              update_recipe_image(recipe_id, new_image_url)
+          
+          elif operation == 'update_title':
+              recipe_id = int(sys.argv[2])
+              new_title = sys.argv[3]
+              update_recipe_title(recipe_id, new_title)
+          
+          elif operation == 'update_complexity':
+              recipe_id = int(sys.argv[2])
+              new_complexity = sys.argv[3]
+              if new_complexity not in ['easy', 'medium', 'complex']:
+                  print("Complexity must be one of: easy, medium, complex")
+                  sys.exit(1)
+              update_recipe_complexity(recipe_id, new_complexity)
+          
+          elif operation == 'batch_update':
+              csv_path = sys.argv[2]
+              batch_update_image_urls(csv_path)
+          
+          else:
+              print(f"Unknown operation: {operation}")
+              sys.exit(1)
+          EOL
+      
+      - name: Create .env file
+        run: |
+          cat > .env <<EOL
+          DB_NAME=${{ secrets.DB_NAME }}
+          DB_USER=${{ secrets.DB_USER }}
+          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          DB_HOST=${{ secrets.DB_HOST }}
+          DB_PORT=${{ secrets.DB_PORT }}
+          DATABASE_URL=${{ secrets.DATABASE_URL }}
+          EOL
+      
+      - name: Run recipe operation
+        run: |
+          if [ "${{ github.event.inputs.operation }}" == "list" ]; then
+            python run_recipe_operation.py list
+          elif [ "${{ github.event.inputs.operation }}" == "search" ]; then
+            python run_recipe_operation.py search "${{ github.event.inputs.search_term }}"
+          elif [ "${{ github.event.inputs.operation }}" == "update_image" ]; then
+            python run_recipe_operation.py update_image "${{ github.event.inputs.recipe_id }}" "${{ github.event.inputs.new_value }}"
+          elif [ "${{ github.event.inputs.operation }}" == "update_title" ]; then
+            python run_recipe_operation.py update_title "${{ github.event.inputs.recipe_id }}" "${{ github.event.inputs.new_value }}"
+          elif [ "${{ github.event.inputs.operation }}" == "update_complexity" ]; then
+            python run_recipe_operation.py update_complexity "${{ github.event.inputs.recipe_id }}" "${{ github.event.inputs.new_value }}"
+          elif [ "${{ github.event.inputs.operation }}" == "batch_update" ]; then
+            python run_recipe_operation.py batch_update "${{ github.event.inputs.csv_path }}"
+          else
+            echo "Unknown operation: ${{ github.event.inputs.operation }}"
+            exit 1
+          fi
