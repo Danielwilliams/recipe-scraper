@@ -1,4 +1,4 @@
-name: Update Custom Recipes Direct
+name: Update Custom Recipes
 
 on:
   workflow_dispatch:
@@ -37,35 +37,34 @@ jobs:
           echo "Current directory: $(pwd)"
           ls -la
           
-          # Display data directory content
-          echo "Data directory content:"
-          find data -type f -name "*.txt" | sort
-          cat data/foodnetwork_data/Custom_Recipes.txt | head -20
+          # Find potential recipe files
+          echo "Looking for Custom_Recipes.txt:"
+          find . -name "Custom_Recipes.txt"
       
-      - name: Import custom recipes
+      - name: Create recipe import script
         run: |
-          # Create a simple script to update recipes
-          cat > update_script.py <<'EOL'
-          #!/usr/bin/env python3
-          
+          cat > import_recipes.py <<'EOL'
           import json
-          import os
           import re
-          import sys
-          from dotenv import load_dotenv
+          from datetime import datetime
           import psycopg2
           from psycopg2.extras import RealDictCursor
-          
+          import os
+          from dotenv import load_dotenv
+          import sys
+
           # Load environment variables
           load_dotenv()
-          
+
+          # Database connection function
           def get_db_connection():
-              """Create and return a database connection"""
+              # First try using DATABASE_URL if available
               database_url = os.environ.get('DATABASE_URL')
               if database_url:
                   conn = psycopg2.connect(database_url)
                   return conn
               
+              # Fall back to individual parameters
               conn = psycopg2.connect(
                   dbname=os.environ.get('DB_NAME'),
                   user=os.environ.get('DB_USER'),
@@ -74,110 +73,390 @@ jobs:
                   port=os.environ.get('DB_PORT', '5432')
               )
               return conn
-          
-          def process_recipes_file(file_path):
-              """Process recipes from file and update database"""
-              print(f"Looking for file at: {file_path}")
-              
-              if not os.path.exists(file_path):
-                  print(f"File not found: {file_path}")
-                  # Try to find it
-                  for root, dirs, files in os.walk('.'):
-                      for file in files:
-                          if file == "Custom_Recipes.txt":
-                              possible_path = os.path.join(root, file)
-                              print(f"Found potential file at: {possible_path}")
-                              file_path = possible_path
-                              break
-                  if not os.path.exists(file_path):
-                      print("Could not find Custom_Recipes.txt anywhere")
-                      return False
-              
-              print(f"Reading file: {file_path}")
-              with open(file_path, 'r', encoding='utf-8') as f:
-                  content = f.read()
-              
-              print(f"File size: {len(content)} bytes")
-              
-              # Split by separator lines
-              recipes = re.split(r'-{10,}', content)
-              print(f"Found {len(recipes)} potential recipe sections")
-              
-              # Connect to database
+
+          def alter_title_column_length():
+              """Increase the length of the title column in the database"""
               conn = get_db_connection()
-              cursor = conn.cursor(cursor_factory=RealDictCursor)
-              
-              updated = 0
-              created = 0
-              
-              for i, recipe_text in enumerate(recipes):
-                  if not recipe_text.strip():
-                      continue
-                  
-                  # Extract basic recipe info
-                  lines = recipe_text.strip().split('\n')
-                  if not lines:
-                      continue
-                  
-                  title = lines[0].strip()
-                  if not title:
-                      continue
-                  
-                  print(f"Processing recipe: {title}")
-                  
-                  # Extract image URL
-                  image_url = None
-                  for line in lines:
-                      if line.strip().startswith("Image Link:"):
-                          image_url = line.replace("Image Link:", "").strip()
-                          break
-                  
-                  if not image_url:
-                      print(f"No image URL found for recipe: {title}")
-                      continue
-                  
-                  # Check if recipe exists
-                  cursor.execute("SELECT id FROM scraped_recipes WHERE LOWER(title) = LOWER(%s)", (title,))
-                  result = cursor.fetchone()
-                  
-                  if result:
-                      # Update existing recipe
-                      recipe_id = result['id']
-                      print(f"Updating existing recipe: {title} (ID: {recipe_id})")
+              try:
+                  with conn.cursor() as cursor:
+                      # First, check the current column type
+                      cursor.execute("""
+                          SELECT column_name, data_type, character_maximum_length
+                          FROM information_schema.columns
+                          WHERE table_name = 'scraped_recipes' AND column_name = 'title'
+                      """)
+                      column_info = cursor.fetchone()
                       
-                      cursor.execute(
-                          "UPDATE scraped_recipes SET image_url = %s WHERE id = %s",
-                          (image_url, recipe_id)
-                      )
-                      updated += 1
-                  else:
-                      # Create new recipe (simplified version)
-                      print(f"Creating new recipe: {title}")
-                      cursor.execute(
-                          """INSERT INTO scraped_recipes 
-                             (title, image_url, source, complexity, date_scraped) 
-                             VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)""",
-                          (title, image_url, 'custom', 'medium')
-                      )
-                      created += 1
+                      if column_info:
+                          print(f"Current title column type: {column_info[1]} with max length: {column_info[2]}")
+                          
+                          # Only alter if needed
+                          if column_info[2] < 255:
+                              print("Altering title column to VARCHAR(255)...")
+                              cursor.execute("ALTER TABLE scraped_recipes ALTER COLUMN title TYPE VARCHAR(255);")
+                              conn.commit()
+                              print("Successfully increased title column length to 255 characters")
+                          else:
+                              print("Title column already has sufficient length")
+                      else:
+                          print("Could not find title column in scraped_recipes table")
+              except Exception as e:
+                  conn.rollback()
+                  print(f"Error altering title column length: {str(e)}")
+              finally:
+                  conn.close()
+
+          def parse_custom_recipe(recipe_text):
+              """Parse custom recipe text into structured format"""
+              lines = recipe_text.strip().split('\n')
               
-              conn.commit()
-              cursor.close()
-              conn.close()
+              # Extract title and clean it
+              title = lines[0].strip()
               
-              print(f"Processing complete. Updated: {updated}, Created: {created}")
-              return True
-          
+              # Remove emojis and special characters that might cause issues
+              title = re.sub(r'[^\x00-\x7F]+', '', title)  # Remove non-ASCII characters
+              
+              # Debug output
+              print(f"Original title: '{title}' ({len(title)} characters)")
+              
+              # Ensure the title is under 100 characters
+              if len(title) > 95:
+                  title = title[:95] + "..."
+                  print(f"Truncated to: '{title}'")
+              
+              # Find ingredients and instructions sections
+              ingredients = []
+              instructions = []
+              
+              # Find nutrition info if available
+              nutrition = {}
+              metadata = {}
+              
+              # Default values
+              image_url = None
+              complexity = "medium"  # Default complexity
+              source = "Custom"
+              
+              # Parse ingredients section
+              in_ingredients = False
+              in_instructions = False
+              
+              for i, line in enumerate(lines[1:], 1):
+                  line = line.strip()
+                  if not line:
+                      continue
+                      
+                  # Check for section headings
+                  if re.match(r'^INGREDIENTS', line, re.IGNORECASE):
+                      in_ingredients = True
+                      in_instructions = False
+                      continue
+                  elif re.match(r'^INSTRUCTIONS', line, re.IGNORECASE):
+                      in_ingredients = False
+                      in_instructions = True
+                      continue
+                  elif line.startswith('http') or line.startswith('Image Link:'):
+                      # This is likely an image URL
+                      url_match = re.search(r'https?://[^\s]+', line)
+                      if url_match:
+                          image_url = url_match.group(0)
+                      continue
+                      
+                  # Process based on current section
+                  if in_ingredients and line:
+                      ingredients.append(line)
+                  elif in_instructions and line:
+                      instructions.append(line)
+                  elif not in_ingredients and not in_instructions and i < 10 and not line.startswith('Image'):
+                      # If we haven't hit either section yet and we're in the beginning lines,
+                      # this might be part of the ingredients
+                      if line and not line.startswith('--'):
+                          ingredients.append(line)
+              
+              # If we didn't find explicit sections, try to infer them
+              if not ingredients and not instructions:
+                  instruction_index = -1
+                  for i, line in enumerate(lines[1:], 1):
+                      if re.search(r'instruction[s]?:', line.lower()):
+                          instruction_index = i
+                          break
+                          
+                  if instruction_index > 0:
+                      # Get ingredients before instructions
+                      for i, line in enumerate(lines[1:instruction_index], 1):
+                          if line.strip() and not line.startswith('--') and not line.startswith('http'):
+                              ingredients.append(line.strip())
+                              
+                      # Get instructions after the instructions marker
+                      for line in lines[instruction_index+1:]:
+                          if not line.strip() or line.startswith('--') or line.startswith('http'):
+                              continue
+                          if re.search(r'calories:', line.lower()):
+                              # Extract nutritional info
+                              calories_match = re.search(r'calories:\s*(\d+)', line.lower())
+                              if calories_match:
+                                  nutrition['calories'] = float(calories_match.group(1))
+                              continue
+                              
+                          instructions.append(line.strip())
+              
+              # Determine complexity based on number of ingredients and steps
+              if len(ingredients) <= 5 and len(instructions) <= 5:
+                  complexity = "easy"
+              elif len(ingredients) >= 12 or len(instructions) >= 8:
+                  complexity = "complex"
+              else:
+                  complexity = "medium"
+              
+              # Create the recipe object
+              recipe = {
+                  'title': title,
+                  'ingredients': ingredients,
+                  'instructions': instructions,
+                  'source': source,
+                  'source_url': '',  # No source URL for custom recipes
+                  'date_scraped': datetime.now().isoformat(),
+                  'complexity': complexity,
+                  'metadata': metadata,
+                  'nutrition': nutrition,
+                  'image_url': image_url,
+                  'tags': ['custom'],  # Tag as custom recipe
+                  'raw_content': recipe_text[:5000]  # Limit raw content to 5000 chars
+              }
+              
+              return recipe
+
+          def save_recipe(recipe):
+              """Save a recipe to the database"""
+              conn = get_db_connection()
+              try:
+                  title = recipe['title']
+                  print(f"Attempting to save recipe with title: '{title}' (Length: {len(title)} characters)")
+                  
+                  with conn.cursor() as cursor:
+                      # Check if recipe already exists
+                      cursor.execute("""
+                          SELECT id FROM scraped_recipes
+                          WHERE title = %s AND source = %s
+                          LIMIT 1
+                      """, (recipe['title'], recipe['source']))
+                      
+                      existing = cursor.fetchone()
+                      if existing:
+                          print(f"Recipe already exists: {recipe['title']}")
+                          
+                          # Update the image URL if it exists
+                          if recipe.get('image_url'):
+                              cursor.execute("""
+                                  UPDATE scraped_recipes
+                                  SET image_url = %s
+                                  WHERE id = %s
+                              """, (recipe['image_url'], existing[0]))
+                              conn.commit()
+                              print(f"Updated image URL for recipe ID {existing[0]}")
+                          
+                          return existing[0]
+                      
+                      # Insert recipe
+                      try:
+                          cursor.execute("""
+                              INSERT INTO scraped_recipes (
+                                  title, source, source_url, instructions, date_scraped, date_processed,
+                                  complexity, prep_time, cook_time, total_time, servings, cuisine,
+                                  is_verified, raw_content, metadata, image_url
+                              ) VALUES (
+                                  %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                              ) RETURNING id
+                          """, (
+                              recipe['title'],
+                              recipe['source'],
+                              recipe.get('source_url', ''),
+                              json.dumps(recipe['instructions']),
+                              datetime.now(),
+                              datetime.now(),
+                              recipe['complexity'],
+                              recipe['metadata'].get('prep_time'),
+                              recipe['metadata'].get('cook_time'),
+                              recipe['metadata'].get('total_time'),
+                              recipe['metadata'].get('servings'),
+                              recipe.get('cuisine'),
+                              True,  # Custom recipes are verified
+                              recipe.get('raw_content', '')[:5000],  # Limit raw content size
+                              json.dumps(recipe['metadata']),
+                              recipe.get('image_url')
+                          ))
+                      except Exception as e:
+                          print(f"ERROR on INSERT: {str(e)}")
+                          print(f"Title value: '{recipe['title']}' (Length: {len(recipe['title'])})")
+                          # Try a simplified INSERT as a last resort
+                          cursor.execute("""
+                              INSERT INTO scraped_recipes (
+                                  title, source, instructions
+                              ) VALUES (
+                                  %s, %s, %s
+                              ) RETURNING id
+                          """, (
+                              recipe['title'][:95],  # Truncate title just to be safe
+                              recipe['source'],
+                              json.dumps(recipe['instructions'])
+                          ))
+                      
+                      recipe_id = cursor.fetchone()[0]
+                      
+                      # Insert ingredients
+                      if 'ingredients' in recipe and recipe['ingredients']:
+                          for ing in recipe['ingredients']:
+                              # Simple insertion for string ingredients
+                              cursor.execute("""
+                                  INSERT INTO recipe_ingredients
+                                  (recipe_id, name, category)
+                                  VALUES (%s, %s, %s)
+                              """, (
+                                  recipe_id,
+                                  str(ing)[:100],  # Truncate ingredient name if too long
+                                  'unknown'
+                              ))
+                      
+                      # Insert nutrition if available
+                      if recipe.get('nutrition'):
+                          nutrition = recipe['nutrition']
+                          cursor.execute("""
+                              INSERT INTO recipe_nutrition
+                              (recipe_id, calories, protein, carbs, fat, is_calculated)
+                              VALUES (%s, %s, %s, %s, %s, %s)
+                          """, (
+                              recipe_id,
+                              nutrition.get('calories'),
+                              nutrition.get('protein'),
+                              nutrition.get('carbs'),
+                              nutrition.get('fat'),
+                              False  # Not calculated values
+                          ))
+                      
+                      # Insert tags
+                      if 'tags' in recipe and recipe['tags']:
+                          for tag in recipe['tags']:
+                              cursor.execute("""
+                                  INSERT INTO recipe_tags
+                                  (recipe_id, tag)
+                                  VALUES (%s, %s)
+                              """, (
+                                  recipe_id,
+                                  tag[:50]  # Truncate tag if too long
+                              ))
+                      
+                      conn.commit()
+                      print(f"Saved recipe '{recipe['title']}' with ID {recipe_id}")
+                      return recipe_id
+                          
+              except Exception as e:
+                  conn.rollback()
+                  print(f"Error saving recipe '{recipe.get('title', 'Unknown')}': {str(e)}")
+                  return None
+              finally:
+                  conn.close()
+
+          def process_custom_recipes_file(file_path):
+              """Process a file containing multiple custom recipes"""
+              try:
+                  print(f"Reading file: {file_path}")
+                  with open(file_path, 'r', encoding='utf-8') as f:
+                      content = f.read()
+                  
+                  print(f"File size: {len(content)} characters")
+                  
+                  # Split the file into individual recipes
+                  # Look for common recipe separators
+                  separator_patterns = [
+                      r'-{10,}',  # At least 10 dashes
+                      r'\d+\.\s*[A-Z][a-zA-Z\s]+\n',  # Numbered recipes like "1. Recipe Name"
+                      r'Recipe\s*\d+\s*:'  # "Recipe 1:" format
+                  ]
+                  
+                  all_recipes = [content]
+                  for pattern in separator_patterns:
+                      new_recipes = []
+                      for recipe_chunk in all_recipes:
+                          splits = re.split(pattern, recipe_chunk)
+                          if len(splits) > 1:
+                              for i, split in enumerate(splits):
+                                  if i > 0:  # Add back the separator for everything except the first split
+                                      match = re.search(pattern, recipe_chunk)
+                                      if match:
+                                          new_recipes.append(match.group(0) + split)
+                                  else:
+                                      new_recipes.append(split)
+                          else:
+                              new_recipes.append(recipe_chunk)
+                      all_recipes = new_recipes
+                  
+                  # Filter out empty recipes
+                  recipe_texts = [recipe for recipe in all_recipes if recipe.strip()]
+                  
+                  print(f"Found {len(recipe_texts)} potential recipes")
+                  
+                  # First try to alter the title column to handle longer titles
+                  alter_title_column_length()
+                  
+                  saved_recipes = 0
+                  for i, recipe_text in enumerate(recipe_texts):
+                      if not recipe_text.strip():
+                          continue
+                          
+                      print(f"\nProcessing recipe #{i+1}:")
+                      print("-" * 40)
+                      print(recipe_text[:100] + "..." if len(recipe_text) > 100 else recipe_text)
+                      print("-" * 40)
+                          
+                      try:
+                          recipe = parse_custom_recipe(recipe_text.strip())
+                          if recipe:
+                              recipe_id = save_recipe(recipe)
+                              if recipe_id:
+                                  saved_recipes += 1
+                      except Exception as e:
+                          print(f"Error processing recipe: {str(e)}")
+                  
+                  print(f"Successfully saved {saved_recipes} out of {len(recipe_texts)} recipes")
+                  
+              except Exception as e:
+                  print(f"Error processing file {file_path}: {str(e)}")
+
           if __name__ == "__main__":
-              file_path = "data/foodnetwork_data/Custom_Recipes.txt"
+              # Check if file path was provided as argument
               if len(sys.argv) > 1:
                   file_path = sys.argv[1]
+              else:
+                  # Try to find the file
+                  possible_paths = [
+                      "data/Custom_Recipes.txt",
+                      "data/foodnetwork_data/Custom_Recipes.txt",
+                      "./data/Custom_Recipes.txt",
+                      "./data/foodnetwork_data/Custom_Recipes.txt"
+                  ]
+                  
+                  for path in possible_paths:
+                      if os.path.exists(path):
+                          file_path = path
+                          break
+                  else:
+                      # Last resort, search for the file
+                      for root, dirs, files in os.walk('.'):
+                          if "Custom_Recipes.txt" in files:
+                              file_path = os.path.join(root, "Custom_Recipes.txt")
+                              break
+                      else:
+                          print("Could not find Custom_Recipes.txt")
+                          sys.exit(1)
               
-              process_recipes_file(file_path)
+              print(f"Processing file: {file_path}")
+              process_custom_recipes_file(file_path)
           EOL
           
           # Make the script executable
-          chmod +x update_script.py
-          
-          # Run the script
-          python update_script.py data/foodnetwork_data/Custom_Recipes.txt
+          chmod +x import_recipes.py
+      
+      - name: Run import script
+        run: |
+          echo "Starting recipe import..."
+          python import_recipes.py
