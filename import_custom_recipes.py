@@ -27,12 +27,22 @@ def get_db_connection():
     )
     return conn
 
+
 def parse_custom_recipe(recipe_text):
     """Parse custom recipe text into structured format"""
     lines = recipe_text.strip().split('\n')
     
-    # Extract title
+    # Extract title and clean it
     title = lines[0].strip()
+    
+    # Remove emojis and special characters that might cause issues
+    title = re.sub(r'[^\x00-\x7F]+', '', title)  # Remove non-ASCII characters
+    
+    # Ensure the title is under 100 characters
+    if len(title) > 95:
+        print(f"Original title: '{title}' ({len(title)} characters)")
+        title = title[:95] + "..."
+        print(f"Truncated to: '{title}'")
     
     # Find ingredients and instructions sections
     ingredients = []
