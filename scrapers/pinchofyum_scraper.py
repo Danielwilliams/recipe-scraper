@@ -8,6 +8,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import traceback
+from database.recipe_storage import RecipeStorage
 
 # Configure logging
 logging.basicConfig(
@@ -979,14 +980,12 @@ class PinchOfYumScraper:
                             recipe_data = item
                             break
                 
-                if recipe_data:
-                    # Extract time information - convert ISO durations to minutes
-                    if recipe_data.get('prepTime'):
-                        metadata['prep_time'] = self._parse_iso_duration(recipe_data['prepTime'])
-                    if recipe_data.get('cookTime'):
-                        metadata['cook_time'] = self._parse_iso_duration(recipe_data['cookTime'])
-                    if recipe_data.get('totalTime'):
-                        metadata['total_time'] = self._parse_iso_duration(recipe_data['totalTime'])
+                if recipe_data.get('prepTime'):
+                    metadata['prep_time'] = RecipeStorage.parse_iso_duration(recipe_data['prepTime'])
+                if recipe_data.get('cookTime'):
+                    metadata['cook_time'] = RecipeStorage.parse_iso_duration(recipe_data['cookTime'])
+                if recipe_data.get('totalTime'):
+                    metadata['total_time'] = RecipeStorage.parse_iso_duration(recipe_data['totalTime'])
                           
                     # Extract servings
                     if recipe_data.get('recipeYield'):
@@ -1068,9 +1067,9 @@ class PinchOfYumScraper:
                             value = time_match.group(1)
                             unit = time_match.group(2).lower()
                             if 'hour' in unit:
-                                metadata['cook_time'] = f'PT{value}H'
+                                metadata['prep_time'] = int(value) * 60  # Convert hours to minutes
                             else:
-                                metadata['cook_time'] = f'PT{value}M'
+                                metadata['prep_time'] = int(value)  # Already in minutes
                         break
             except:
                 pass
