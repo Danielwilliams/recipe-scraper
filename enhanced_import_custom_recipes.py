@@ -807,6 +807,28 @@ def process_recipes_file(input_file, output_json=None, save_to_db=True):
     """Process a file containing multiple recipes"""
     try:
         logger.info(f"Reading file: {input_file}")
+        
+        # Check if file exists
+        if not os.path.exists(input_file):
+            logger.error(f"File not found: {input_file}")
+            print(f"Error: File '{input_file}' not found.")
+            if output_json:
+                # Create an empty output file
+                with open(output_json, 'w', encoding='utf-8') as f:
+                    json.dump([], f)
+                logger.info(f"Created empty output file: {output_json}")
+            return []
+            
+        # Check if file is empty
+        if os.path.getsize(input_file) == 0:
+            logger.warning(f"File is empty: {input_file}")
+            print(f"Warning: File '{input_file}' is empty.")
+            if output_json:
+                with open(output_json, 'w', encoding='utf-8') as f:
+                    json.dump([], f)
+                logger.info(f"Created empty output file: {output_json}")
+            return []
+        
         with open(input_file, 'r', encoding='utf-8') as f:
             content = f.read()
         
