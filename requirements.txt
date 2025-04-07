@@ -10,3 +10,4 @@ cloudscraper>=1.2.71
 selenium>=4.0.0
 webdriver-manager>=3.0.0
 pandas>=2.0.0
+Pillow>=10.0.0  # For image processing

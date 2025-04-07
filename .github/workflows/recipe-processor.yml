@@ -1,0 +1,113 @@
+name: Recipe Processing
+
+on:
+  push:
+    paths:
+      - 'recipes/**.txt'
+      - '.github/workflows/recipe-processor.yml'
+      - 'recipe_processor.py'
+  pull_request:
+    paths:
+      - 'recipes/**.txt'
+      - '.github/workflows/recipe-processor.yml'
+      - 'recipe_processor.py'
+  workflow_dispatch:
+    inputs:
+      recipe_file:
+        description: 'Path to the recipe file to process (relative to repo)'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  process-recipes:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+          
+      - name: Find recipe files to process
+        id: find-recipes
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ ! -z "${{ github.event.inputs.recipe_file }}" ]; then
+            # Manual trigger with specified file
+            echo "RECIPE_FILES=${{ github.event.inputs.recipe_file }}" >> $GITHUB_ENV
+            echo "Processing manually specified file: ${{ github.event.inputs.recipe_file }}"
+          else
+            # Auto trigger based on push/PR changes
+            if [ "${{ github.event_name }}" == "push" ] || [ "${{ github.event_name }}" == "pull_request" ]; then
+              # Get list of changed files
+              if [ "${{ github.event_name }}" == "push" ]; then
+                CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.event.after }} | grep -E '^recipes/.*\.txt$' || echo "")
+              else
+                # Pull request - get changed files from PR
+                CHANGED_FILES=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                  "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" | \
+                  jq -r '.[] | select(.filename | test("^recipes/.*\\.txt$")) | .filename' || echo "")
+              fi
+              
+              if [ ! -z "$CHANGED_FILES" ]; then
+                echo "RECIPE_FILES=$CHANGED_FILES" >> $GITHUB_ENV
+                echo "Processing changed files: $CHANGED_FILES"
+              else
+                # No txt files changed, process all recipe files
+                ALL_RECIPES=$(find recipes -name "*.txt" -type f | tr '\n' ' ')
+                echo "RECIPE_FILES=$ALL_RECIPES" >> $GITHUB_ENV
+                echo "No specific changes detected. Processing all recipe files: $ALL_RECIPES"
+              fi
+            else
+              # Fallback to processing all recipe files
+              ALL_RECIPES=$(find recipes -name "*.txt" -type f | tr '\n' ' ')
+              echo "RECIPE_FILES=$ALL_RECIPES" >> $GITHUB_ENV
+              echo "Processing all recipe files: $ALL_RECIPES"
+            fi
+          fi
+          
+      - name: Process recipe files
+        env:
+          UNSPLASH_API_KEY: ${{ secrets.UNSPLASH_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+        run: |
+          mkdir -p processed_recipes
+          for file in $RECIPE_FILES; do
+            echo "Processing file: $file"
+            
+            # Get the base filename without extension
+            filename=$(basename "$file" .txt)
+            
+            # Process the recipe file
+            python recipe_processor.py "$file" "processed_recipes/${filename}.json"
+          done
+          
+      - name: Upload processed recipes
+        uses: actions/upload-artifact@v3
+        with:
+          name: processed-recipes
+          path: processed_recipes/
+          
+      - name: Commit and push processed recipes
+        run: |
+          git config --global user.name 'GitHub Actions Bot'
+          git config --global user.email 'actions@github.com'
+          
+          # Add all processed recipe files
+          git add processed_recipes/*.json
+          
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Process recipes via GitHub Actions [skip ci]"
+            git push
+          fi

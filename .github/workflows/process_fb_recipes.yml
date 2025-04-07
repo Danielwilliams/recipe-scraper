@@ -1,0 +1,65 @@
+name: Process Facebook Recipes
+
+on:
+  workflow_dispatch:
+    inputs:
+      file_name:
+        description: 'Name of the recipe file to process (in data directory)'
+        required: true
+        default: 'FB_Recipes.txt'
+  # You could also add a schedule if needed
+  # schedule:
+  #  - cron: '0 0 * * 0'  # Run weekly on Sundays at midnight
+
+jobs:
+  process-recipes:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Process recipes
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        UNSPLASH_API_KEY: ${{ secrets.UNSPLASH_API_KEY }}
+        EDAMAM_APP_ID: ${{ secrets.EDAMAM_APP_ID }}
+        EDAMAM_APP_KEY: ${{ secrets.EDAMAM_APP_KEY }}
+        PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+      run: |
+        # Create output directory for logs
+        mkdir -p logs
+        
+        # First, process the recipes and save to JSON
+        echo "Processing recipes from ${{ github.event.inputs.file_name }}..."
+        python enhanced_import_custom_recipes.py data/${{ github.event.inputs.file_name }} data/processed_recipes.json
+        
+        # Find images for any recipes missing them
+        echo "Finding images for recipes that need them..."
+        python find_recipe_images.py --update-db --limit 50
+        
+        # Generate nutrition data for recipes
+        echo "Generating nutrition data for recipes that need it..."
+        python generate_nutrition.py --update-db --limit 50
+        
+    - name: Upload processed recipes
+      uses: actions/upload-artifact@v3
+      with:
+        name: processed-recipes
+        path: data/processed_recipes.json
+        
+    - name: Upload logs
+      uses: actions/upload-artifact@v3
+      with:
+        name: processing-logs
+        path: logs/
