@@ -151,10 +151,11 @@ def determine_recipe_type(recipe):
     return "main"
 
 def generate_nutrition_data(ingredients, servings):
-    """Generate nutrition data using Edamam API"""
+    """Generate nutrition data using Edamam API or estimate if API not available"""
     if not EDAMAM_APP_ID or not EDAMAM_APP_KEY:
-        logger.warning("Edamam API credentials not found, skipping nutrition calculation")
-        return {}
+        logger.warning("Edamam API credentials not found, using placeholder nutrition data")
+        # Generate placeholder nutrition data based on ingredient count
+        return generate_placeholder_nutrition(ingredients, servings)
         
     try:
         # Combine all ingredients into a single string
@@ -189,10 +190,81 @@ def generate_nutrition_data(ingredients, servings):
             return nutrition
         else:
             logger.warning(f"Failed to get nutrition data: {response.status_code}")
-            return {}
+            return generate_placeholder_nutrition(ingredients, servings)
     except Exception as e:
         logger.error(f"Error generating nutrition data: {str(e)}")
-        return {}
+        return generate_placeholder_nutrition(ingredients, servings)
+
+def generate_placeholder_nutrition(ingredients, servings):
+    """Generate placeholder nutrition data based on ingredient count and types"""
+    # Very simple estimation based on ingredient count
+    ingredient_count = len(ingredients)
+    
+    # Base values
+    calories = 250 + (ingredient_count * 25)
+    protein = 10 + (ingredient_count * 1.5)
+    carbs = 30 + (ingredient_count * 2)
+    fat = 10 + (ingredient_count * 0.8)
+    fiber = 3 + (ingredient_count * 0.5)
+    sugar = 5 + (ingredient_count * 0.3)
+    sodium = 300 + (ingredient_count * 50)
+    
+    # Adjust based on keywords in ingredients
+    for ingredient in ingredients:
+        ing_lower = ingredient.lower()
+        
+        # Protein sources
+        if any(protein_word in ing_lower for protein_word in ["meat", "chicken", "beef", "pork", "fish", "tofu", "beans", "lentils", "egg"]):
+            protein += 10
+            calories += 50
+            
+        # Carb sources
+        if any(carb_word in ing_lower for carb_word in ["pasta", "rice", "bread", "potato", "flour", "sugar", "syrup"]):
+            carbs += 15
+            calories += 70
+            
+        # Fat sources
+        if any(fat_word in ing_lower for fat_word in ["oil", "butter", "cream", "cheese", "avocado", "nuts"]):
+            fat += 8
+            calories += 70
+            
+    # Calculate per serving
+    if servings > 0:
+        per_serving = {
+            "calories": round(calories / servings),
+            "protein": round(protein / servings, 1),
+            "carbs": round(carbs / servings, 1),
+            "fat": round(fat / servings, 1),
+            "fiber": round(fiber / servings, 1),
+            "sugar": round(sugar / servings, 1),
+            "sodium": round(sodium / servings, 1)
+        }
+    else:
+        per_serving = {
+            "calories": calories,
+            "protein": protein,
+            "carbs": carbs,
+            "fat": fat,
+            "fiber": fiber,
+            "sugar": sugar,
+            "sodium": sodium
+        }
+    
+    # Create full nutrition object
+    nutrition = {
+        "calories": calories,
+        "protein": protein,
+        "carbs": carbs,
+        "fat": fat,
+        "fiber": fiber,
+        "sugar": sugar,
+        "sodium": sodium,
+        "per_serving": per_serving,
+        "per_meal": per_serving.copy(),  # For now, per meal is same as per serving
+        "is_estimate": True  # Flag to indicate this is estimated data
+    }
+    
+    return nutrition
 
 def save_nutrition_to_db(recipe_id, nutrition, servings):
     """Save nutrition data to the database"""

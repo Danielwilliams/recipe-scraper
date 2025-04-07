@@ -128,15 +128,37 @@ Each recipe should be formatted as a JSON object with the following structure:
    - Extract hashtags if present in the recipe
    - Generate standardized tags based on recipe title, ingredients, and cuisine
    - Standard tag categories for Smart Meal Planner:
-     - **Meal Type**: breakfast, lunch, dinner, snack, dessert
-     - **Cuisine**: italian, mexican, asian, mediterranean, american, etc.
-     - **Diet Type**: vegetarian, vegan, gluten-free, keto, low-carb, etc.
-     - **Dish Type**: soup, salad, sandwich, pizza, pasta, stir-fry, etc.
-     - **Main Ingredient**: chicken, beef, fish, tofu, lentils, etc.
-     - **Cooking Method**: baked, grilled, fried, slow-cooker, instant-pot, etc.
-     - **Preparation Time**: quick, make-ahead, meal-prep
+     - **Meal Type**: breakfast, lunch, dinner, snack, dessert, appetizer, side-dish
+     - **Cuisine**: italian, mexican, asian, mediterranean, american, french, indian, thai, japanese, chinese, greek, middle-eastern, spanish
+     - **Diet Type**: vegetarian, vegan, gluten-free, keto, low-carb, dairy-free, paleo, whole30
+     - **Dish Type**: soup, salad, sandwich, pizza, pasta, stir-fry, casserole, stew, curry, bowl, wrap, burger, taco, pie, bread, cake, cookie, rice
+     - **Main Ingredient**: chicken, beef, pork, fish, seafood, tofu, lentils, beans, rice, potato, pasta, vegetables, mushroom
+     - **Cooking Method**: baked, grilled, fried, slow-cooker, instant-pot, air-fryer, steamed, sauteed, pressure-cooker, one-pot, sheet-pan
+     - **Preparation Time**: quick, make-ahead, meal-prep, 5-ingredients, 30-minute, weeknight
+     - **Complexity**: easy, medium, complex
+     - **Seasonal**: spring, summer, fall, winter, holiday
+     - **Occasion**: party, potluck, family-friendly, date-night, weeknight, weekend
    - Always include "facebook" as a source tag
-   - Add dietary tags (vegetarian, vegan, etc.) based on ingredients analysis
+   - Add dietary tags using these rules:
+     - **Vegetarian**: No meat, poultry, fish, or seafood ingredients
+     - **Vegan**: Vegetarian + no dairy, eggs, honey, or other animal products
+     - **Gluten-Free**: No wheat, barley, rye, or ingredients containing gluten
+     - **Dairy-Free**: No milk, cheese, yogurt, cream, butter, or other dairy
+     - **Keto**: Very low carb (≤10g net carbs per serving), high fat
+     - **Low-Carb**: Moderate carb restriction (<30g carbs per serving)
+     - **Paleo**: No grains, legumes, dairy, refined sugar, or processed foods
+
+   - Add nutritional focus tags when appropriate:
+     - **High-Protein**: ≥20g protein per serving
+     - **Low-Fat**: ≤3g fat per serving
+     - **Low-Calorie**: ≤300 calories per serving
+     - **High-Fiber**: ≥5g fiber per serving
+
+   - Add flavor profile tags based on dominant flavors:
+     - **Spicy**, **Sweet**, **Savory**, **Tangy**, **Smoky**, **Herby**, **Garlicky**
+
+   - Add contextual tags based on recipe use:
+     - **Freezer-Friendly**, **Meal-Prep**, **Leftover-Friendly**, **Kid-Friendly**
 
 8. **Recipe Separation**:
    - Look for common separators between recipes:

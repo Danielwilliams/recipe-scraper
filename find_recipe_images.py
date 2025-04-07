@@ -42,12 +42,17 @@ def get_recipes_missing_images(limit=None):
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            # Modified query to be compatible with more PostgreSQL versions
             query = """
-                SELECT r.id, r.title, string_agg(ri.name, ', ' ORDER BY ri.id LIMIT 3) as main_ingredients
+                SELECT r.id, r.title, 
+                       (SELECT string_agg(name, ', ') FROM 
+                          (SELECT ri.name FROM recipe_ingredients ri 
+                           WHERE ri.recipe_id = r.id 
+                           ORDER BY ri.id 
+                           LIMIT 3) AS top_ingredients
+                       ) as main_ingredients
                 FROM scraped_recipes r
-                LEFT JOIN recipe_ingredients ri ON r.id = ri.recipe_id
                 WHERE (r.image_url IS NULL OR r.image_url = '')
-                GROUP BY r.id, r.title
                 ORDER BY r.id
             """
             
@@ -137,20 +142,27 @@ def search_image(recipe):
     title = recipe['title']
     main_ingredients = recipe.get('main_ingredients', '')
     
+    # Check if we have any API keys
+    if not UNSPLASH_API_KEY and not PEXELS_API_KEY:
+        logger.warning("No image API keys available. Using fallback image.")
+        return FALLBACK_IMAGE_URL
+    
     # Prepare search query
     if main_ingredients:
         query = f"{title} {main_ingredients}"
     else:
         query = title
         
-    # Try Unsplash first
-    image_url = search_image_unsplash(query)
+    # Try Unsplash first if key is available
+    image_url = None
+    if UNSPLASH_API_KEY:
+        image_url = search_image_unsplash(query)
     
-    # If Unsplash failed, try Pexels
-    if not image_url:
+    # If Unsplash failed, try Pexels if key is available
+    if not image_url and PEXELS_API_KEY:
         image_url = search_image_pexels(query)
         
-    # If both failed, use fallback
+    # If both failed or no keys available, use fallback
     if not image_url:
         image_url = FALLBACK_IMAGE_URL
         

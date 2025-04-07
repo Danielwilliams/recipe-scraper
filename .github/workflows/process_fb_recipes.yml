@@ -41,23 +41,74 @@ jobs:
         mkdir -p logs
         mkdir -p data
         
-        # Check if the input file exists
+        # Check if the input file exists and is not empty
         if [ ! -f "data/${{ github.event.inputs.file_name }}" ]; then
-          echo "Warning: Input file data/${{ github.event.inputs.file_name }} not found. Creating an empty file."
-          touch "data/${{ github.event.inputs.file_name }}"
+          echo "Warning: Input file data/${{ github.event.inputs.file_name }} not found. Creating an example file."
+          cat > "data/${{ github.event.inputs.file_name }}" << 'EOL'
+Vegetarian Pasta Salad 🍅🥑
+This Vegetarian Pasta Salad is a fresh and flavorful twist on the classic BLT-inspired dish.
+
+Ingredients:
+- 1 (16-ounce) package rotini pasta
+- 6 cups shredded romaine lettuce
+- 2½ cups halved cherry tomatoes
+- 1 large avocado (diced)
+- ½ cup mayo
+- 2 large lemons (zested and juiced)
+- Salt and pepper (to taste)
+
+Instructions:
+1. Cook the rotini pasta according to package instructions.
+2. In a large bowl, toss the cooled pasta with the shredded lettuce.
+3. Add cherry tomatoes and diced avocado.
+4. Mix mayo with lemon juice for a simple dressing.
+5. Gently toss to combine. Season with salt and pepper.
+EOL
+          echo "Created example recipe file."
+        elif [ ! -s "data/${{ github.event.inputs.file_name }}" ]; then
+          echo "Warning: Input file data/${{ github.event.inputs.file_name }} is empty. Adding an example recipe."
+          cat > "data/${{ github.event.inputs.file_name }}" << 'EOL'
+Vegetarian Pasta Salad 🍅🥑
+This Vegetarian Pasta Salad is a fresh and flavorful twist on the classic BLT-inspired dish.
+
+Ingredients:
+- 1 (16-ounce) package rotini pasta
+- 6 cups shredded romaine lettuce
+- 2½ cups halved cherry tomatoes
+- 1 large avocado (diced)
+- ½ cup mayo
+- 2 large lemons (zested and juiced)
+- Salt and pepper (to taste)
+
+Instructions:
+1. Cook the rotini pasta according to package instructions.
+2. In a large bowl, toss the cooled pasta with the shredded lettuce.
+3. Add cherry tomatoes and diced avocado.
+4. Mix mayo with lemon juice for a simple dressing.
+5. Gently toss to combine. Season with salt and pepper.
+EOL
+          echo "Added example recipe to file."
         fi
         
         # First, process the recipes and save to JSON
         echo "Processing recipes from ${{ github.event.inputs.file_name }}..."
         python enhanced_import_custom_recipes.py data/${{ github.event.inputs.file_name }} data/processed_recipes.json
         
-        # Find images for any recipes missing them
-        echo "Finding images for recipes that need them..."
-        python find_recipe_images.py --update-db --limit 50
+        # Find images for any recipes missing them (only if API keys are available)
+        if [ -n "$UNSPLASH_API_KEY" ] || [ -n "$PEXELS_API_KEY" ]; then
+          echo "Finding images for recipes that need them..."
+          python find_recipe_images.py --update-db --limit 50
+        else
+          echo "Skipping image search - no API keys provided."
+        fi
         
-        # Generate nutrition data for recipes
-        echo "Generating nutrition data for recipes that need it..."
-        python generate_nutrition.py --update-db --limit 50
+        # Generate nutrition data for recipes (only if API key is available)
+        if [ -n "$EDAMAM_APP_ID" ] && [ -n "$EDAMAM_APP_KEY" ]; then
+          echo "Generating nutrition data for recipes that need it..."
+          python generate_nutrition.py --update-db --limit 50
+        else
+          echo "Skipping nutrition generation - no API keys provided."
+        fi
         
     - name: Upload processed recipes
       uses: actions/upload-artifact@v4
