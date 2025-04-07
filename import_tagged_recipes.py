@@ -186,16 +186,70 @@ def import_recipe(recipe, dry_run=False):
             
             # Insert tags
             tags = recipe.get('tags', [])
+            
+            # Standard tag categories for validation
+            standard_tags = {
+                "meal_type": ["breakfast", "lunch", "dinner", "snack", "dessert", "appetizer", "side-dish"],
+                "cuisine": ["italian", "mexican", "asian", "mediterranean", "american", "french", "indian", 
+                           "thai", "japanese", "chinese", "greek", "middle-eastern", "spanish"],
+                "diet_type": ["vegetarian", "vegan", "gluten-free", "keto", "low-carb", "dairy-free", 
+                            "paleo", "whole30"],
+                "dish_type": ["soup", "salad", "sandwich", "pizza", "pasta", "stir-fry", "casserole", 
+                            "stew", "curry", "bowl", "wrap", "burger", "taco", "pie", "bread", "cake", 
+                            "cookie", "rice"],
+                "main_ingredient": ["chicken", "beef", "pork", "fish", "seafood", "tofu", "lentils", 
+                                  "beans", "rice", "potato", "pasta", "vegetables", "mushroom"],
+                "cooking_method": ["baked", "grilled", "fried", "slow-cooker", "instant-pot", "air-fryer", 
+                                 "steamed", "sauteed", "pressure-cooker", "one-pot", "sheet-pan"]
+            }
+            
+            # Flatten the standard tags for validation
+            all_standard_tags = []
+            for category in standard_tags.values():
+                all_standard_tags.extend(category)
+            
+            # Additional valid tags
+            additional_valid_tags = [
+                "facebook", "quick", "easy", "medium", "complex", "family-friendly", 
+                "weeknight", "creamy", "comfort-food", "spicy", "sweet", "savory",
+                "tangy", "smoky", "herby", "garlicky", "freezer-friendly", "meal-prep",
+                "leftover-friendly", "kid-friendly", "high-protein", "low-fat",
+                "low-calorie", "high-fiber", "main-dish", "one-pot", "sheet-pan",
+                "30-minute", "5-ingredients"
+            ]
+            
+            all_standard_tags.extend(additional_valid_tags)
+            
+            # Process and insert tags
             for tag in tags:
-                if tag:  # Skip empty tags
-                    cursor.execute("""
-                        INSERT INTO recipe_tags
-                        (recipe_id, tag)
-                        VALUES (%s, %s)
-                    """, (
-                        recipe_id,
-                        tag[:50]  # Truncate if too long
-                    ))
+                if not tag:  # Skip empty tags
+                    continue
+                    
+                # Clean the tag (lowercase, remove special chars, limit length)
+                clean_tag = tag.lower().strip()
+                clean_tag = clean_tag[:50]  # Truncate if too long
+                
+                # Skip if tag is too short
+                if len(clean_tag) < 3:
+                    continue
+                
+                # Check if tag is a standard tag or close to one
+                is_standard = False
+                for std_tag in all_standard_tags:
+                    if clean_tag == std_tag or clean_tag.replace('-', '') == std_tag.replace('-', ''):
+                        clean_tag = std_tag  # Use the standard spelling
+                        is_standard = True
+                        break
+                
+                # Insert the tag
+                cursor.execute("""
+                    INSERT INTO recipe_tags
+                    (recipe_id, tag)
+                    VALUES (%s, %s)
+                """, (
+                    recipe_id,
+                    clean_tag
+                ))
             
             conn.commit()
             logger.info(f"Saved recipe '{recipe['title']}' with ID {recipe_id}")
