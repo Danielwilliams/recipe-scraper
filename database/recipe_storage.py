@@ -39,25 +39,36 @@ class RecipeStorage:
     def parse_iso_duration(self, iso_duration):
         """
         Parse ISO 8601 duration to minutes
-        
+
         Args:
-            iso_duration (str): ISO 8601 duration string (e.g., 'PT15M')
-            
+            iso_duration (str|int): ISO 8601 duration string (e.g., 'PT15M') or integer minutes
+
         Returns:
             int: Duration in minutes or None if parsing fails
         """
         if not iso_duration:
             return None
-        
+
         try:
+            # If it's already a number, just return it
+            if isinstance(iso_duration, (int, float)):
+                return int(iso_duration)
+
+            # Convert to string if it's not already
+            iso_duration = str(iso_duration)
+
+            # If it's just a number string, return as integer
+            if iso_duration.isdigit():
+                return int(iso_duration)
+
             import re
             # Handle PT1H30M format (ISO 8601 duration)
             hours_match = re.search(r'PT(?:(\d+)H)?', iso_duration)
             minutes_match = re.search(r'PT(?:[^M]*?)(\d+)M', iso_duration)
-            
+
             hours = int(hours_match.group(1)) if hours_match and hours_match.group(1) else 0
             minutes = int(minutes_match.group(1)) if minutes_match and minutes_match.group(1) else 0
-            
+
             total_minutes = hours * 60 + minutes
             return total_minutes if total_minutes > 0 else None
         except Exception as e:
@@ -192,9 +203,9 @@ class RecipeStorage:
                 metadata_json = json.dumps(recipe.get('metadata', {}))
                 categories_json = json.dumps(recipe.get('categories', []))
 
-                # Handle new columns with defaults - diet_tags is TEXT[] not JSONB
+                # Handle new columns with defaults - diet_tags and flavor_profile are TEXT[] not JSONB
                 diet_tags_array = []  # Empty array for TEXT[] type
-                flavor_profile_json = json.dumps([])  # Empty array as default for JSONB
+                flavor_profile_array = []  # Empty array for TEXT[] type
                 appliances_json = json.dumps([])  # Empty array as default for JSONB
 
                 # Define all possible columns and their values
@@ -218,7 +229,7 @@ class RecipeStorage:
                     'categories': categories_json,
                     'component_type': None,
                     'diet_tags': diet_tags_array,
-                    'flavor_profile': flavor_profile_json,
+                    'flavor_profile': flavor_profile_array,
                     'cooking_method': None,
                     'meal_part': None,
                     'notes': recipe.get('notes'),  # Include notes when available
@@ -237,8 +248,8 @@ class RecipeStorage:
                     if col_name in available_columns:
                         insert_columns.append(col_name)
                         insert_values.append(col_value)
-                        # Handle JSONB columns (diet_tags is TEXT[] not JSONB)
-                        if col_name in ['instructions', 'metadata', 'categories', 'flavor_profile', 'appliances']:
+                        # Handle JSONB columns (diet_tags and flavor_profile are TEXT[] not JSONB)
+                        if col_name in ['instructions', 'metadata', 'categories', 'appliances']:
                             placeholders.append('%s::jsonb')
                         else:
                             placeholders.append('%s')
