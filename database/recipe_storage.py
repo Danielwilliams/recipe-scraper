@@ -1,4 +1,4 @@
-# database/recipe_storage.py
+# database/recipe_storage.py - FIXED VERSION
 import json
 import logging
 from datetime import datetime
@@ -9,8 +9,6 @@ logger = logging.getLogger(__name__)
 class RecipeStorage:
     """Store processed recipes in the database"""
     
-    # database/recipe_storage.py - Update the save_recipe method to handle updating existing entries
-
     def _validate_recipe(self, recipe):
         """
         Validate recipe has required fields and data
@@ -38,7 +36,7 @@ class RecipeStorage:
             
         return True
 
-    def parse_iso_duration(iso_duration):
+    def parse_iso_duration(self, iso_duration):
         """
         Parse ISO 8601 duration to minutes
         
@@ -52,6 +50,7 @@ class RecipeStorage:
             return None
         
         try:
+            import re
             # Handle PT1H30M format (ISO 8601 duration)
             hours_match = re.search(r'PT(?:(\d+)H)?', iso_duration)
             minutes_match = re.search(r'PT(?:[^M]*?)(\d+)M', iso_duration)
@@ -175,36 +174,62 @@ class RecipeStorage:
                     
                     return recipe_id
                 
-                # Recipe doesn't exist - insert it
+                # Recipe doesn't exist - insert it with FIXED column mapping
+                logger.info(f"Inserting new recipe: {recipe['title']}")
+                
+                # Prepare JSONB values properly
+                instructions_json = json.dumps(recipe.get('instructions', []))
+                metadata_json = json.dumps(recipe.get('metadata', {}))
+                categories_json = json.dumps(recipe.get('categories', []))
+                
+                # Handle new JSONB columns with defaults
+                diet_tags_json = json.dumps([])  # Empty array as default
+                flavor_profile_json = json.dumps([])  # Empty array as default 
+                appliances_json = json.dumps([])  # Empty array as default
+                
                 cursor.execute("""
                     INSERT INTO scraped_recipes (
                         title, source, source_url, instructions, date_scraped, date_processed,
                         complexity, prep_time, cook_time, total_time, servings, cuisine,
-                        is_verified, raw_content, metadata, image_url, categories
+                        is_verified, raw_content, metadata, image_url, categories,
+                        component_type, diet_tags, flavor_profile, cooking_method, meal_part,
+                        notes, spice_level, diet_type, meal_prep_type, appliances
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb,
+                        %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s::jsonb
                     ) RETURNING id
                 """, (
                     recipe['title'],
                     recipe['source'],
                     recipe['source_url'],
-                    json.dumps(recipe['instructions']),
+                    instructions_json,  # JSONB
                     datetime.now(),
                     datetime.now(),
-                    recipe['complexity'],
-                    recipe['metadata'].get('prep_time'),
-                    recipe['metadata'].get('cook_time'),
-                    recipe['metadata'].get('total_time'),
-                    recipe['metadata'].get('servings'),
+                    recipe.get('complexity'),
+                    recipe.get('metadata', {}).get('prep_time'),
+                    recipe.get('metadata', {}).get('cook_time'),
+                    recipe.get('metadata', {}).get('total_time'),
+                    recipe.get('metadata', {}).get('servings'),
                     recipe.get('cuisine'),
                     False,  # Not verified initially
-                    recipe.get('raw_content', '')[:5000],  # Limit raw content size
-                    json.dumps(recipe['metadata']),
+                    recipe.get('raw_content', '')[:5000] if recipe.get('raw_content') else '',
+                    metadata_json,  # JSONB
                     recipe.get('image_url'),
-                    json.dumps(recipe.get('categories', []))
+                    categories_json,  # JSONB
+                    None,  # component_type (will be tagged later)
+                    diet_tags_json,  # JSONB array
+                    flavor_profile_json,  # JSONB array
+                    None,  # cooking_method (will be tagged later)
+                    None,  # meal_part (will be tagged later)
+                    None,  # notes
+                    None,  # spice_level (will be tagged later)
+                    None,  # diet_type (will be tagged later)
+                    None,  # meal_prep_type (will be tagged later)
+                    appliances_json  # JSONB array
                 ))
                 
                 recipe_id = cursor.fetchone()[0]
+                logger.info(f"Successfully inserted recipe '{recipe['title']}' with ID {recipe_id}")
                 
                 # Insert ingredients
                 if 'ingredients' in recipe and recipe['ingredients']:
@@ -247,23 +272,23 @@ class RecipeStorage:
                             tag
                         ))
                 
-                # Insert nutrition if available
+                # Insert nutrition if available (check if table exists first)
                 if 'nutrition' in recipe and recipe['nutrition']:
-                    nutrition = recipe['nutrition']
-                    cursor.execute("""
-                        INSERT INTO recipe_nutrition
-                        (recipe_id, calories, protein, carbs, fat, fiber, sugar, is_calculated)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (
-                        recipe_id,
-                        nutrition.get('calories'),
-                        nutrition.get('protein'),
-                        nutrition.get('carbs'),
-                        nutrition.get('fat'),
-                        nutrition.get('fiber'),
-                        nutrition.get('sugar'),
-                        True
-                    ))
+                    try:
+                        nutrition = recipe['nutrition']
+                        cursor.execute("""
+                            INSERT INTO recipe_nutrition
+                            (recipe_id, calories, protein, carbs, fat)
+                            VALUES (%s, %s, %s, %s, %s)
+                        """, (
+                            recipe_id,
+                            nutrition.get('calories'),
+                            nutrition.get('protein'),
+                            nutrition.get('carbs'),
+                            nutrition.get('fat')
+                        ))
+                    except Exception as e:
+                        logger.warning(f"Could not insert nutrition data: {e}")
                 
                 conn.commit()
                 logger.info(f"Saved recipe '{recipe['title']}' with ID {recipe_id}")
@@ -272,6 +297,9 @@ class RecipeStorage:
         except Exception as e:
             conn.rollback()
             logger.error(f"Error saving recipe '{recipe.get('title', 'Unknown')}': {str(e)}")
+            logger.error(f"Full error details: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return None
         finally:
             conn.close()
