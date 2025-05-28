@@ -5,6 +5,42 @@ from config import FOOD_CATEGORIES
 
 logger = logging.getLogger(__name__)
 
+class IngredientParser:
+    """Parser for extracting and structuring ingredient data"""
+
+    def __init__(self):
+        """Initialize the ingredient parser"""
+        self.logger = logging.getLogger(__name__)
+
+    def parse(self, ingredient_text):
+        """
+        Parse an ingredient string into structured data
+
+        Args:
+            ingredient_text (str): Raw ingredient text
+
+        Returns:
+            dict: Structured ingredient data
+        """
+        return parse_ingredient(ingredient_text)
+
+    def parse_ingredients_list(self, ingredients_list):
+        """
+        Parse a list of ingredient strings
+
+        Args:
+            ingredients_list (list): List of ingredient strings
+
+        Returns:
+            list: List of structured ingredient data
+        """
+        parsed_ingredients = []
+        for ingredient in ingredients_list:
+            if isinstance(ingredient, str) and ingredient.strip():
+                parsed = self.parse(ingredient)
+                parsed_ingredients.append(parsed)
+        return parsed_ingredients
+
 # Common units of measurement
 UNITS = {
     'cup': ['cup', 'cups', 'c', 'c.'],
