@@ -174,59 +174,86 @@ class RecipeStorage:
                     
                     return recipe_id
                 
-                # Recipe doesn't exist - insert it with FIXED column mapping
+                # Recipe doesn't exist - insert it with dynamic column mapping
                 logger.info(f"Inserting new recipe: {recipe['title']}")
-                
+
+                # Check which columns exist in the scraped_recipes table
+                cursor.execute("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'scraped_recipes'
+                    AND table_schema = 'public'
+                """)
+                available_columns = {row[0] for row in cursor.fetchall()}
+                logger.debug(f"Available columns: {available_columns}")
+
                 # Prepare JSONB values properly
                 instructions_json = json.dumps(recipe.get('instructions', []))
                 metadata_json = json.dumps(recipe.get('metadata', {}))
                 categories_json = json.dumps(recipe.get('categories', []))
-                
+
                 # Handle new JSONB columns with defaults
                 diet_tags_json = json.dumps([])  # Empty array as default
-                flavor_profile_json = json.dumps([])  # Empty array as default 
+                flavor_profile_json = json.dumps([])  # Empty array as default
                 appliances_json = json.dumps([])  # Empty array as default
-                
-                cursor.execute("""
-                    INSERT INTO scraped_recipes (
-                        title, source, source_url, instructions, date_scraped, date_processed,
-                        complexity, prep_time, cook_time, total_time, servings, cuisine,
-                        is_verified, raw_content, metadata, image_url, categories,
-                        component_type, diet_tags, flavor_profile, cooking_method, meal_part,
-                        notes, spice_level, diet_type, meal_prep_type, appliances
-                    ) VALUES (
-                        %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb,
-                        %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s::jsonb
-                    ) RETURNING id
-                """, (
-                    recipe['title'],
-                    recipe['source'],
-                    recipe['source_url'],
-                    instructions_json,  # JSONB
-                    datetime.now(),
-                    datetime.now(),
-                    recipe.get('complexity'),
-                    recipe.get('metadata', {}).get('prep_time'),
-                    recipe.get('metadata', {}).get('cook_time'),
-                    recipe.get('metadata', {}).get('total_time'),
-                    recipe.get('metadata', {}).get('servings'),
-                    recipe.get('cuisine'),
-                    False,  # Not verified initially
-                    recipe.get('raw_content', '')[:5000] if recipe.get('raw_content') else '',
-                    metadata_json,  # JSONB
-                    recipe.get('image_url'),
-                    categories_json,  # JSONB
-                    None,  # component_type (will be tagged later)
-                    diet_tags_json,  # JSONB array
-                    flavor_profile_json,  # JSONB array
-                    None,  # cooking_method (will be tagged later)
-                    None,  # meal_part (will be tagged later)
-                    None,  # notes
-                    None,  # spice_level (will be tagged later)
-                    None,  # diet_type (will be tagged later)
-                    None,  # meal_prep_type (will be tagged later)
-                    appliances_json  # JSONB array
-                ))
+
+                # Define all possible columns and their values
+                all_columns = {
+                    'title': recipe['title'],
+                    'source': recipe['source'],
+                    'source_url': recipe['source_url'],
+                    'instructions': instructions_json,
+                    'date_scraped': datetime.now(),
+                    'date_processed': datetime.now(),
+                    'complexity': recipe.get('complexity'),
+                    'prep_time': recipe.get('metadata', {}).get('prep_time'),
+                    'cook_time': recipe.get('metadata', {}).get('cook_time'),
+                    'total_time': recipe.get('metadata', {}).get('total_time'),
+                    'servings': recipe.get('metadata', {}).get('servings'),
+                    'cuisine': recipe.get('cuisine'),
+                    'is_verified': False,
+                    'raw_content': recipe.get('raw_content', '')[:5000] if recipe.get('raw_content') else '',
+                    'metadata': metadata_json,
+                    'image_url': recipe.get('image_url'),
+                    'categories': categories_json,
+                    'component_type': None,
+                    'diet_tags': diet_tags_json,
+                    'flavor_profile': flavor_profile_json,
+                    'cooking_method': None,
+                    'meal_part': None,
+                    'notes': recipe.get('notes'),  # Include notes when available
+                    'spice_level': None,
+                    'diet_type': None,
+                    'meal_prep_type': None,
+                    'appliances': appliances_json
+                }
+
+                # Build dynamic INSERT statement with only available columns
+                insert_columns = []
+                insert_values = []
+                placeholders = []
+
+                for col_name, col_value in all_columns.items():
+                    if col_name in available_columns:
+                        insert_columns.append(col_name)
+                        insert_values.append(col_value)
+                        # Handle JSONB columns
+                        if col_name in ['instructions', 'metadata', 'categories', 'diet_tags', 'flavor_profile', 'appliances']:
+                            placeholders.append('%s::jsonb')
+                        else:
+                            placeholders.append('%s')
+
+                # Create the INSERT SQL dynamically
+                insert_sql = f"""
+                    INSERT INTO scraped_recipes ({', '.join(insert_columns)})
+                    VALUES ({', '.join(placeholders)})
+                    RETURNING id
+                """
+
+                logger.debug(f"Insert SQL: {insert_sql}")
+                logger.debug(f"Inserting {len(insert_columns)} columns")
+
+                cursor.execute(insert_sql, insert_values)
                 
                 recipe_id = cursor.fetchone()[0]
                 logger.info(f"Successfully inserted recipe '{recipe['title']}' with ID {recipe_id}")
