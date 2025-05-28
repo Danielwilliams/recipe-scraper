@@ -192,10 +192,10 @@ class RecipeStorage:
                 metadata_json = json.dumps(recipe.get('metadata', {}))
                 categories_json = json.dumps(recipe.get('categories', []))
 
-                # Handle new JSONB columns with defaults
-                diet_tags_json = json.dumps([])  # Empty array as default
-                flavor_profile_json = json.dumps([])  # Empty array as default
-                appliances_json = json.dumps([])  # Empty array as default
+                # Handle new columns with defaults - diet_tags is TEXT[] not JSONB
+                diet_tags_array = []  # Empty array for TEXT[] type
+                flavor_profile_json = json.dumps([])  # Empty array as default for JSONB
+                appliances_json = json.dumps([])  # Empty array as default for JSONB
 
                 # Define all possible columns and their values
                 all_columns = {
@@ -206,9 +206,9 @@ class RecipeStorage:
                     'date_scraped': datetime.now(),
                     'date_processed': datetime.now(),
                     'complexity': recipe.get('complexity'),
-                    'prep_time': recipe.get('metadata', {}).get('prep_time'),
-                    'cook_time': recipe.get('metadata', {}).get('cook_time'),
-                    'total_time': recipe.get('metadata', {}).get('total_time'),
+                    'prep_time': self.parse_iso_duration(recipe.get('metadata', {}).get('prep_time')),
+                    'cook_time': self.parse_iso_duration(recipe.get('metadata', {}).get('cook_time')),
+                    'total_time': self.parse_iso_duration(recipe.get('metadata', {}).get('total_time')),
                     'servings': recipe.get('metadata', {}).get('servings'),
                     'cuisine': recipe.get('cuisine'),
                     'is_verified': False,
@@ -217,7 +217,7 @@ class RecipeStorage:
                     'image_url': recipe.get('image_url'),
                     'categories': categories_json,
                     'component_type': None,
-                    'diet_tags': diet_tags_json,
+                    'diet_tags': diet_tags_array,
                     'flavor_profile': flavor_profile_json,
                     'cooking_method': None,
                     'meal_part': None,
@@ -237,8 +237,8 @@ class RecipeStorage:
                     if col_name in available_columns:
                         insert_columns.append(col_name)
                         insert_values.append(col_value)
-                        # Handle JSONB columns
-                        if col_name in ['instructions', 'metadata', 'categories', 'diet_tags', 'flavor_profile', 'appliances']:
+                        # Handle JSONB columns (diet_tags is TEXT[] not JSONB)
+                        if col_name in ['instructions', 'metadata', 'categories', 'flavor_profile', 'appliances']:
                             placeholders.append('%s::jsonb')
                         else:
                             placeholders.append('%s')
