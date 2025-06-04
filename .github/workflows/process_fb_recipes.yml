@@ -44,49 +44,45 @@ jobs:
         # Check if the input file exists and is not empty
         if [ ! -f "data/${{ github.event.inputs.file_name }}" ]; then
           echo "Warning: Input file data/${{ github.event.inputs.file_name }} not found. Creating an example file."
-          cat > "data/${{ github.event.inputs.file_name }}" << EOF
-Vegetarian Pasta Salad 🍅🥑
-This Vegetarian Pasta Salad is a fresh and flavorful twist on the classic BLT-inspired dish.
-
-Ingredients:
-- 1 (16-ounce) package rotini pasta
-- 6 cups shredded romaine lettuce
-- 2½ cups halved cherry tomatoes
-- 1 large avocado (diced)
-- ½ cup mayo
-- 2 large lemons (zested and juiced)
-- Salt and pepper (to taste)
-
-Instructions:
-1. Cook the rotini pasta according to package instructions.
-2. In a large bowl, toss the cooled pasta with the shredded lettuce.
-3. Add cherry tomatoes and diced avocado.
-4. Mix mayo with lemon juice for a simple dressing.
-5. Gently toss to combine. Season with salt and pepper.
-EOF
+          echo "Vegetarian Pasta Salad 🍅🥑" > "data/${{ github.event.inputs.file_name }}"
+          echo "This Vegetarian Pasta Salad is a fresh and flavorful twist on the classic BLT-inspired dish." >> "data/${{ github.event.inputs.file_name }}"
+          echo "" >> "data/${{ github.event.inputs.file_name }}"
+          echo "Ingredients:" >> "data/${{ github.event.inputs.file_name }}"
+          echo "- 1 (16-ounce) package rotini pasta" >> "data/${{ github.event.inputs.file_name }}"
+          echo "- 6 cups shredded romaine lettuce" >> "data/${{ github.event.inputs.file_name }}"
+          echo "- 2½ cups halved cherry tomatoes" >> "data/${{ github.event.inputs.file_name }}"
+          echo "- 1 large avocado (diced)" >> "data/${{ github.event.inputs.file_name }}"
+          echo "- ½ cup mayo" >> "data/${{ github.event.inputs.file_name }}"
+          echo "- 2 large lemons (zested and juiced)" >> "data/${{ github.event.inputs.file_name }}"
+          echo "- Salt and pepper (to taste)" >> "data/${{ github.event.inputs.file_name }}"
+          echo "" >> "data/${{ github.event.inputs.file_name }}"
+          echo "Instructions:" >> "data/${{ github.event.inputs.file_name }}"
+          echo "1. Cook the rotini pasta according to package instructions." >> "data/${{ github.event.inputs.file_name }}"
+          echo "2. In a large bowl, toss the cooled pasta with the shredded lettuce." >> "data/${{ github.event.inputs.file_name }}"
+          echo "3. Add cherry tomatoes and diced avocado." >> "data/${{ github.event.inputs.file_name }}"
+          echo "4. Mix mayo with lemon juice for a simple dressing." >> "data/${{ github.event.inputs.file_name }}"
+          echo "5. Gently toss to combine. Season with salt and pepper." >> "data/${{ github.event.inputs.file_name }}"
           echo "Created example recipe file."
         elif [ ! -s "data/${{ github.event.inputs.file_name }}" ]; then
           echo "Warning: Input file data/${{ github.event.inputs.file_name }} is empty. Adding an example recipe."
-          cat > "data/${{ github.event.inputs.file_name }}" << EOF
-Vegetarian Pasta Salad 🍅🥑
-This Vegetarian Pasta Salad is a fresh and flavorful twist on the classic BLT-inspired dish.
-
-Ingredients:
-- 1 (16-ounce) package rotini pasta
-- 6 cups shredded romaine lettuce
-- 2½ cups halved cherry tomatoes
-- 1 large avocado (diced)
-- ½ cup mayo
-- 2 large lemons (zested and juiced)
-- Salt and pepper (to taste)
-
-Instructions:
-1. Cook the rotini pasta according to package instructions.
-2. In a large bowl, toss the cooled pasta with the shredded lettuce.
-3. Add cherry tomatoes and diced avocado.
-4. Mix mayo with lemon juice for a simple dressing.
-5. Gently toss to combine. Season with salt and pepper.
-EOF
+          echo "Vegetarian Pasta Salad 🍅🥑" > "data/${{ github.event.inputs.file_name }}"
+          echo "This Vegetarian Pasta Salad is a fresh and flavorful twist on the classic BLT-inspired dish." >> "data/${{ github.event.inputs.file_name }}"
+          echo "" >> "data/${{ github.event.inputs.file_name }}"
+          echo "Ingredients:" >> "data/${{ github.event.inputs.file_name }}"
+          echo "- 1 (16-ounce) package rotini pasta" >> "data/${{ github.event.inputs.file_name }}"
+          echo "- 6 cups shredded romaine lettuce" >> "data/${{ github.event.inputs.file_name }}"
+          echo "- 2½ cups halved cherry tomatoes" >> "data/${{ github.event.inputs.file_name }}"
+          echo "- 1 large avocado (diced)" >> "data/${{ github.event.inputs.file_name }}"
+          echo "- ½ cup mayo" >> "data/${{ github.event.inputs.file_name }}"
+          echo "- 2 large lemons (zested and juiced)" >> "data/${{ github.event.inputs.file_name }}"
+          echo "- Salt and pepper (to taste)" >> "data/${{ github.event.inputs.file_name }}"
+          echo "" >> "data/${{ github.event.inputs.file_name }}"
+          echo "Instructions:" >> "data/${{ github.event.inputs.file_name }}"
+          echo "1. Cook the rotini pasta according to package instructions." >> "data/${{ github.event.inputs.file_name }}"
+          echo "2. In a large bowl, toss the cooled pasta with the shredded lettuce." >> "data/${{ github.event.inputs.file_name }}"
+          echo "3. Add cherry tomatoes and diced avocado." >> "data/${{ github.event.inputs.file_name }}"
+          echo "4. Mix mayo with lemon juice for a simple dressing." >> "data/${{ github.event.inputs.file_name }}"
+          echo "5. Gently toss to combine. Season with salt and pepper." >> "data/${{ github.event.inputs.file_name }}"
           echo "Added example recipe to file."
         fi
         
