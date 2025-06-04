@@ -1,0 +1,115 @@
+# GitHub Actions Workflow: Update Recipes
+# Place this file in: .github/workflows/update-recipes.yml
+
+name: Update Recipes
+
+on:
+  # Run manually
+  workflow_dispatch:
+    inputs:
+      source:
+        description: 'Recipe source to scrape (all, pinchofyum, simplyrecipes, etc.)'
+        required: false
+        default: 'all'
+        type: string
+      limit:
+        description: 'Maximum number of recipes to scrape per source'
+        required: false
+        default: '20'
+        type: string
+  
+  # Run on schedule (weekly on Wednesdays at 3 AM UTC)
+  schedule:
+    - cron: '0 3 * * 3'
+
+jobs:
+  update-recipes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # 2 hour timeout
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Cache Python dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Set up environment variables
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        DB_NAME: ${{ secrets.DB_NAME }}
+        DB_USER: ${{ secrets.DB_USER }}
+        DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        DB_HOST: ${{ secrets.DB_HOST }}
+        DB_PORT: ${{ secrets.DB_PORT }}
+      run: |
+        echo "Environment variables configured"
+        
+    - name: Check database connection
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        DB_NAME: ${{ secrets.DB_NAME }}
+        DB_USER: ${{ secrets.DB_USER }}
+        DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        DB_HOST: ${{ secrets.DB_HOST }}
+        DB_PORT: ${{ secrets.DB_PORT }}
+      run: |
+        python -c "
+        import sys
+        sys.path.append('.')
+        from database.db_connector import get_db_connection
+        try:
+            conn = get_db_connection()
+            print('✅ Database connection successful')
+            conn.close()
+        except Exception as e:
+            print(f'❌ Database connection failed: {e}')
+            sys.exit(1)
+        "
+        
+    - name: Run recipe scraper
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        DB_NAME: ${{ secrets.DB_NAME }}
+        DB_USER: ${{ secrets.DB_USER }}
+        DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        DB_HOST: ${{ secrets.DB_HOST }}
+        DB_PORT: ${{ secrets.DB_PORT }}
+      run: |
+        SOURCE="${{ github.event.inputs.source || 'all' }}"
+        LIMIT="${{ github.event.inputs.limit || '50' }}"
+        echo "Scraping recipes from source: $SOURCE with limit: $LIMIT"
+        python main.py --source $SOURCE --limit $LIMIT
+        
+    - name: Generate summary report
+      if: always()
+      run: |
+        echo "## Recipe Update Job Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Source:** ${{ github.event.inputs.source || 'all' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Limit:** ${{ github.event.inputs.limit || '50' }} recipes per source" >> $GITHUB_STEP_SUMMARY
+        echo "- **Date:** $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Check the job logs above for detailed results." >> $GITHUB_STEP_SUMMARY
+        
+    - name: Notify on failure
+      if: failure()
+      run: |
+        echo "❌ Recipe update job failed"
+        echo "Check the logs above for error details"

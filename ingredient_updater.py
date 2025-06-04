@@ -10,11 +10,20 @@ import logging
 import json
 import time
 import requests
+import traceback
 from bs4 import BeautifulSoup
 from datetime import datetime
 from database.db_connector import get_db_connection
 from processors.ingredient_parser import IngredientParser
 import config
+
+# Import enhanced scrapers
+from scrapers.enhanced_simplyrecipes_scraper import EnhancedSimplyRecipesScraper
+from scrapers.enhanced_pinchofyum_scraper import EnhancedPinchOfYumScraper
+from scrapers.host_the_toast_scraper import HostTheToastScraper
+from scrapers.fit_fab_fodmap_scraper import FitFabFodmapScraper
+from scrapers.pickled_plum_scraper import PickledPlumScraper
+from scrapers.myprotein_scraper import MyProteinScraper
 
 # Set up logging
 logging.basicConfig(
@@ -32,6 +41,16 @@ class IngredientUpdater:
         self.session.headers.update({
             'User-Agent': config.USER_AGENT
         })
+        
+        # Initialize enhanced scrapers
+        self.scrapers = {
+            'SimplyRecipes': EnhancedSimplyRecipesScraper(),
+            'Pinch of Yum': EnhancedPinchOfYumScraper(),
+            'Host the Toast': HostTheToastScraper(),
+            'Fit Fab Fodmap': FitFabFodmapScraper(),
+            'Pickled Plum': PickledPlumScraper(),
+            'MyProtein': MyProteinScraper(),
+        }
         
     def find_recipes_without_ingredients(self, limit=50):
         """
@@ -85,42 +104,105 @@ class IngredientUpdater:
     
     def scrape_ingredients_from_url(self, url, source):
         """
-        Scrape ingredients from a recipe URL
+        Scrape ingredients from a recipe URL using the appropriate enhanced scraper
         
         Args:
             url (str): Recipe URL
-            source (str): Recipe source (e.g., 'SimplyRecipes', 'AllRecipes')
+            source (str): Recipe source (e.g., 'SimplyRecipes', 'Pinch of Yum')
             
         Returns:
-            list: List of ingredient strings or dictionaries
+            list: List of ingredient strings
         """
         try:
             logger.info(f"Scraping ingredients from: {url}")
             
-            # Add delay to be respectful
-            time.sleep(config.SCRAPE_DELAY)
+            # Get the page content directly first for efficient extraction
+            response = None
+            try:
+                response = self.session.get(url, timeout=config.REQUEST_TIMEOUT)
+                response.raise_for_status()
+            except Exception as e:
+                logger.error(f"Request error for {url}: {str(e)}")
+                return []
+                
+            soup = BeautifulSoup(response.content, 'lxml')
             
-            response = self.session.get(url, timeout=config.REQUEST_TIMEOUT)
-            response.raise_for_status()
+            # Check if we have an enhanced scraper for this source
+            if source in self.scrapers:
+                scraper = self.scrapers[source]
+                logger.info(f"Using enhanced {source} scraper")
+                
+                try:
+                    # First try direct extraction with scrapers
+                    recipe_info = scraper._extract_recipe_info(response.text, url)
+                    
+                    if recipe_info and 'ingredients' in recipe_info and recipe_info['ingredients']:
+                        logger.info(f"Successfully extracted {len(recipe_info['ingredients'])} ingredients using enhanced scraper")
+                        return recipe_info['ingredients']
+                except Exception as e:
+                    logger.error(f"Error with enhanced scraper for {source}: {str(e)}")
+                    logger.error(traceback.format_exc())
             
-            soup = BeautifulSoup(response.content, 'html.parser')
+            # If we get here, enhanced scraper didn't work or we don't have one for this source
+            
+            # First try modern Tasty Recipes format with checkboxes for Pinch of Yum
+            if source == 'Pinch of Yum' or 'tasty-recipes' in response.text.lower():
+                logger.info("Trying direct extraction of Tasty Recipes format")
+                tasty_container = soup.select_one('.tasty-recipes')
+                if tasty_container:
+                    # First try the modern format with checkboxes
+                    ingredients = []
+                    checkbox_ingredients = tasty_container.select('li[data-tr-ingredient-checkbox]')
+                    if checkbox_ingredients:
+                        logger.info(f"Found {len(checkbox_ingredients)} ingredients with modern checkbox format")
+                        for item in checkbox_ingredients:
+                            ingredient_text = item.get_text().strip()
+                            if ingredient_text:
+                                ingredients.append(ingredient_text)
+                        
+                        if ingredients:
+                            logger.info(f"Successfully extracted {len(ingredients)} ingredients from checkbox format")
+                            return ingredients
+            
+            # Try JSON-LD for all sources
+            logger.info("Trying JSON-LD extraction")
+            json_ld_ingredients = self._extract_from_json_ld(soup)
+            if json_ld_ingredients:
+                logger.info(f"Successfully extracted {len(json_ld_ingredients)} ingredients from JSON-LD")
+                return json_ld_ingredients
+            
+            # Fallback to legacy scraping method if all else fails
+            logger.info(f"Falling back to legacy scraping for {source}")
+            return self._legacy_scrape_ingredients(soup, source)
+            
+        except Exception as e:
+            logger.error(f"Error scraping ingredients from {url}: {str(e)}")
+            logger.error(traceback.format_exc())
+            return []
+    
+    def _legacy_scrape_ingredients(self, soup, source):
+        """
+        Legacy ingredient scraping method as fallback
+        
+        Args:
+            soup (BeautifulSoup): Parsed HTML
+            source (str): Recipe source
+            
+        Returns:
+            list: List of ingredient strings
+        """
+        try:
             ingredients = []
             
             # Try different common ingredient selectors based on source
             ingredient_selectors = self._get_ingredient_selectors(source)
+            ingredient_elements = []
             
             for selector in ingredient_selectors:
                 ingredient_elements = soup.select(selector)
                 if ingredient_elements:
-                    logger.info(f"Found ingredients using selector: {selector}")
+                    logger.info(f"Found {len(ingredient_elements)} ingredients using selector: {selector}")
                     break
-            
-            if not ingredient_elements:
-                # Try JSON-LD structured data
-                ingredients = self._extract_from_json_ld(soup)
-                if ingredients:
-                    logger.info("Found ingredients in JSON-LD structured data")
-                    return ingredients
             
             # Extract text from ingredient elements
             for element in ingredient_elements:
@@ -136,14 +218,12 @@ class IngredientUpdater:
                     seen.add(ing)
                     unique_ingredients.append(ing)
             
-            logger.info(f"Extracted {len(unique_ingredients)} ingredients")
+            logger.info(f"Extracted {len(unique_ingredients)} ingredients using legacy method")
             return unique_ingredients[:50]  # Limit to reasonable number
             
-        except requests.RequestException as e:
-            logger.error(f"Request error scraping {url}: {str(e)}")
-            return []
         except Exception as e:
-            logger.error(f"Error scraping ingredients from {url}: {str(e)}")
+            logger.error(f"Error in legacy scraping: {str(e)}")
+            logger.error(traceback.format_exc())
             return []
     
     def _get_ingredient_selectors(self, source):
@@ -158,10 +238,22 @@ class IngredientUpdater:
         """
         selectors = {
             'SimplyRecipes': [
+                '.structured-ingredients__list-item',
+                '.mntl-structured-ingredients__list-item',
                 '.recipe-ingredients li',
                 '.ingredient-list li',
                 '.ingredients li',
-                '[data-module="recipe"] .ingredients li'
+                '[data-module="recipe"] .ingredients li',
+                '[data-ingredient-name]',
+                'li[data-tr-ingredient-checkbox]'
+            ],
+            'Pinch of Yum': [
+                'li[data-tr-ingredient-checkbox]',
+                '.tasty-recipes-ingredients li',
+                '.tasty-recipes-ingredients-body li',
+                '.recipe-ingredients li',
+                '.ingredients li',
+                'ul.ingredients li'
             ],
             'AllRecipes': [
                 '.recipe-ingred_txt',
@@ -179,13 +271,31 @@ class IngredientUpdater:
                 '.recipe-ingredients li',
                 '.ingredient-list li'
             ],
-            'Pinch of Yum': [
-                '.recipe-ingredients li',
-                '.ingredients li',
-                'ul.ingredients li'
-            ],
             'Epicurious': [
                 '[data-testid="IngredientList"] li',
+                '.ingredients li',
+                '.recipe-ingredients li'
+            ],
+            'Host the Toast': [
+                'li[data-tr-ingredient-checkbox]',
+                '.tasty-recipes-ingredients li',
+                '.tasty-recipes-ingredients-body li',
+                '.recipe-ingredients li'
+            ],
+            'Fit Fab Fodmap': [
+                'li[data-tr-ingredient-checkbox]',
+                '.tasty-recipes-ingredients li',
+                '.tasty-recipes-ingredients-body li',
+                '.recipe-ingredients li'
+            ],
+            'Pickled Plum': [
+                'li[data-tr-ingredient-checkbox]',
+                '.tasty-recipes-ingredients li',
+                '.tasty-recipes-ingredients-body li',
+                '.recipe-ingredients li'
+            ],
+            'MyProtein': [
+                '.ingredients-list li',
                 '.ingredients li',
                 '.recipe-ingredients li'
             ]
@@ -196,13 +306,17 @@ class IngredientUpdater:
         
         # Add common fallback selectors
         fallback_selectors = [
+            'li[data-tr-ingredient-checkbox]',
+            '.tasty-recipes-ingredients li',
             '.recipe-ingredients li',
             '.ingredients li',
             '.ingredient-list li',
             '.recipe-ingredient',
             'li[itemprop="recipeIngredient"]',
             '[itemprop="recipeIngredient"]',
-            '.ingredient'
+            '.ingredient',
+            '.wprm-recipe-ingredient',
+            '.wprm-recipe-ingredients li'
         ]
         
         return source_selectors + fallback_selectors
@@ -231,7 +345,15 @@ class IngredientUpdater:
                             ingredients = self._extract_ingredients_from_recipe_object(item)
                             if ingredients:
                                 return ingredients
-                    else:
+                    elif isinstance(data, dict):
+                        # Check for @graph property (collection of items)
+                        if '@graph' in data and isinstance(data['@graph'], list):
+                            for item in data['@graph']:
+                                ingredients = self._extract_ingredients_from_recipe_object(item)
+                                if ingredients:
+                                    return ingredients
+                                    
+                        # Regular recipe object
                         ingredients = self._extract_ingredients_from_recipe_object(data)
                         if ingredients:
                             return ingredients
@@ -259,7 +381,10 @@ class IngredientUpdater:
             
         # Check if this is a Recipe object
         schema_type = data.get('@type', '')
-        if 'Recipe' not in schema_type:
+        if isinstance(schema_type, list):
+            if 'Recipe' not in schema_type:
+                return []
+        elif 'Recipe' not in schema_type:
             return []
             
         # Extract ingredients
@@ -351,7 +476,7 @@ class IngredientUpdater:
             logger.info(f"Processing recipe {i}/{len(recipes)}: {recipe['title']}")
             
             try:
-                # Scrape ingredients from source URL
+                # Scrape ingredients from source URL using enhanced scrapers
                 ingredients = self.scrape_ingredients_from_url(
                     recipe['source_url'], 
                     recipe['source']
@@ -370,9 +495,13 @@ class IngredientUpdater:
                     failed_updates += 1
                     logger.warning(f"⚠️ No ingredients found for: {recipe['title']}")
                     
+                # Be polite - don't hammer the server
+                time.sleep(2)
+                    
             except Exception as e:
                 failed_updates += 1
                 logger.error(f"❌ Error processing {recipe['title']}: {str(e)}")
+                logger.error(traceback.format_exc())
         
         duration = (datetime.now() - start_time).total_seconds()
         

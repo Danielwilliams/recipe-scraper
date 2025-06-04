@@ -8,7 +8,12 @@ from scrapers.allrecipes_scraper import AllRecipesScraper
 from scrapers.eatingwell_scraper import EatingWellScraper
 from scrapers.foodnetwork_scraper import FoodNetworkScraper
 from scrapers.pinchofyum_scraper import PinchOfYumScraper
+from scrapers.enhanced_pinchofyum_scraper import EnhancedPinchOfYumScraper
 from scrapers.simplyrecipes_scraper import SimplyRecipesScraper
+from scrapers.enhanced_simplyrecipes_scraper import EnhancedSimplyRecipesScraper
+from scrapers.host_the_toast_scraper import HostTheToastScraper
+from scrapers.fit_fab_fodmap_scraper import FitFabFodmapScraper
+from scrapers.pickled_plum_scraper import PickledPlumScraper
 from database.db_connector import get_db_connection
 from psycopg2.extras import RealDictCursor
 from scrapers.myprotein_scraper import MyProteinScraper
@@ -64,10 +69,12 @@ def update_image_urls():
             #'AllRecipes': AllRecipesScraper(),
             #'EatingWell': EatingWellScraper(),
             #'Food Network': FoodNetworkScraper(),
-            'Pinch of Yum': PinchOfYumScraper(),
-            'SimplyRecipes': SimplyRecipesScraper(),
-            'MyProtein': MyProteinScraper()
-
+            'Pinch of Yum': EnhancedPinchOfYumScraper(),  # Use enhanced scraper
+            'SimplyRecipes': EnhancedSimplyRecipesScraper(),  # Use enhanced scraper
+            'MyProtein': MyProteinScraper(),
+            'Host the Toast': HostTheToastScraper(),  # New scraper
+            'Fit Fab Fodmap': FitFabFodmapScraper(),  # New scraper
+            'Pickled Plum': PickledPlumScraper()  # New scraper
         }
         
         storage = RecipeStorage()
@@ -140,10 +147,11 @@ def main():
         
         # Parse command line arguments
         parser = argparse.ArgumentParser(description="Recipe scraper")
-        parser.add_argument('--source', choices=['all', 'websites', 'allrecipes', 'eatingwell', 'foodnetwork', 'epicurious', 'pinchofyum', 'simplyrecipes', 'myprotein'], 
+        parser.add_argument('--source', choices=['all', 'websites', 'allrecipes', 'eatingwell', 'foodnetwork', 'epicurious',
+                                               'pinchofyum', 'simplyrecipes', 'myprotein', 'hostthetoast', 'fitfabfodmap', 'pickledplum'],
                             default='websites', help='Source to scrape (default: websites)')
         parser.add_argument('--limit', type=int, default=50,
-                            help='Maximum number of recipes to scrape per source (default: 100)')
+                            help='Maximum number of recipes to scrape per source (default: 50)')
         parser.add_argument('--update-images', action='store_true', 
                             help='Update missing image URLs for existing recipes')
         
@@ -156,15 +164,18 @@ def main():
         
         # Determine which scrapers to use
         scrapers = []
-        
+
         if args.source in ['all', 'websites']:
             scrapers = [
                 #('AllRecipes', AllRecipesScraper()),
                 #('EatingWell', EatingWellScraper()),
                 #('FoodNetwork', FoodNetworkScraper()),
-                ('PinchOfYum', PinchOfYumScraper()),
-                ('SimplyRecipes', SimplyRecipesScraper()),
-                ('MyProtein', MyProteinScraper())
+                ('PinchOfYum', EnhancedPinchOfYumScraper()),  # Use enhanced scraper
+                ('SimplyRecipes', EnhancedSimplyRecipesScraper()),  # Use enhanced scraper
+                ('MyProtein', MyProteinScraper()),
+                ('HostTheToast', HostTheToastScraper()),  # New scraper
+                ('FitFabFodmap', FitFabFodmapScraper()),  # New scraper
+                ('PickledPlum', PickledPlumScraper())     # New scraper
             ]
         #elif args.source == 'allrecipes':
         #    scrapers = [('AllRecipes', AllRecipesScraper())]
@@ -173,11 +184,17 @@ def main():
         #elif args.source == 'foodnetwork':
         #    scrapers = [('FoodNetwork', FoodNetworkScraper())]
         elif args.source == 'pinchofyum':
-            scrapers = [('PinchOfYum', PinchOfYumScraper())]
+            scrapers = [('PinchOfYum', EnhancedPinchOfYumScraper())]  # Use enhanced scraper
         elif args.source == 'simplyrecipes':
-            scrapers = [('SimplyRecipes', SimplyRecipesScraper())]
+            scrapers = [('SimplyRecipes', EnhancedSimplyRecipesScraper())]  # Use enhanced scraper
         elif args.source == 'myprotein':
             scrapers = [('MyProtein', MyProteinScraper())]
+        elif args.source == 'hostthetoast':
+            scrapers = [('HostTheToast', HostTheToastScraper())]
+        elif args.source == 'fitfabfodmap':
+            scrapers = [('FitFabFodmap', FitFabFodmapScraper())]
+        elif args.source == 'pickledplum':
+            scrapers = [('PickledPlum', PickledPlumScraper())]
         
         # Scrape from each source
         for scraper_name, scraper in scrapers:

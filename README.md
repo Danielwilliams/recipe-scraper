@@ -4,11 +4,13 @@ This tool scrapes recipes from various websites and imports them into a database
 
 ## Features
 
-- **Web Scraping**: Scrape recipes from popular websites like AllRecipes, FoodNetwork, and more
+- **Web Scraping**: Scrape recipes from popular websites like Pinch of Yum, Simply Recipes, Host the Toast, Fit Fab Fodmap, Pickled Plum and more
+- **Enhanced Tasty Recipes Format Support**: Specialized extraction for sites using the Tasty Recipes WordPress plugin
 - **Custom Recipe Import**: Import custom recipes from text files, including Facebook-saved recipes
 - **Image Finding**: Automatically find images for recipes that don't have them
 - **Nutrition Calculation**: Generate nutrition information using API services
 - **Database Storage**: Store recipes in a PostgreSQL database
+- **Ingredient Update**: Automated updater for missing ingredients
 
 ## Configuration
 
@@ -34,7 +36,33 @@ FACEBOOK_PAGES=page1,page2
 ### Scraping Recipes
 
 ```bash
-python main.py
+# Scrape recipes from all sources
+python main.py --source all --limit 50
+
+# Scrape recipes from a specific source
+python main.py --source pinchofyum --limit 50
+
+# Scrape from other Tasty Recipes sites
+python main.py --source hostthetoast --limit 50
+python main.py --source fitfabfodmap --limit 50
+python main.py --source pickledplum --limit 50
+```
+
+### Updating Recipes with Missing Ingredients
+
+```bash
+# Find and update recipes with missing ingredients
+python ingredient_updater.py --limit 50
+```
+
+### Testing the Tasty Recipes Scrapers
+
+```bash
+# Test the original enhanced Pinch of Yum scraper
+python test_enhanced_pinchofyum.py
+
+# Test all Tasty Recipes format scrapers
+python test_tasty_recipes_scrapers.py
 ```
 
 ### Processing Facebook Recipes
@@ -75,10 +103,17 @@ See `recipe_format_instructions.md` for detailed guidelines on how recipes are f
 ## Project Structure
 
 - `scrapers/` - Website-specific scrapers
+  - `tasty_recipes_base_scraper.py` - Base class for Tasty Recipes format scrapers
+  - `enhanced_pinchofyum_scraper.py` - Specialized scraper for Pinch of Yum
+  - `host_the_toast_scraper.py` - Scraper for Host the Toast
+  - `fit_fab_fodmap_scraper.py` - Scraper for Fit Fab Fodmap
+  - `pickled_plum_scraper.py` - Scraper for Pickled Plum
 - `processors/` - Recipe processing modules
 - `database/` - Database connection and storage functions
 - `data/` - Input and output data files
 - `.github/workflows/` - GitHub Actions workflows
+  - `update_recipes_workflow.yml` - Workflow for scraping new recipes
+  - `update_ingredients_workflow.yml` - Workflow for updating missing ingredients
 
 ## Requirements
 
