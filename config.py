@@ -1,15 +1,26 @@
 # config.py
 import os
+import logging
 from dotenv import load_dotenv
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Try to load .env file if exists locally
 try:
     load_dotenv()
-except:
-    pass  # In GitHub Actions, we'll use secrets directly
+    logger.info("Loaded environment variables from .env file")
+except Exception as e:
+    logger.warning(f"Failed to load .env file: {str(e)}")
+    logger.info("Will use environment variables directly")
 
 # Database Configuration - priority to DATABASE_URL if available
 DATABASE_URL = os.environ.get('DATABASE_URL')
+logger.info(f"DATABASE_URL: {DATABASE_URL}")
 
 # If DATABASE_URL is available, extract components for individual settings
 if DATABASE_URL:

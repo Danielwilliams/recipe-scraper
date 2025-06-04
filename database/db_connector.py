@@ -13,13 +13,23 @@ def get_db_connection():
     try:
         # First try using DATABASE_URL if available
         if config.DATABASE_URL:
-            logger.info("Connecting to database using DATABASE_URL")
+            logger.info(f"Connecting to database using DATABASE_URL: {config.DATABASE_URL}")
             conn = psycopg2.connect(config.DATABASE_URL)
+            logger.info("Successfully connected using DATABASE_URL")
+
+            # Log connection details for verification
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT current_database(), current_user, version()")
+                db_info = cursor.fetchone()
+                logger.info(f"Connected to database: {db_info[0]} as user: {db_info[1]}")
+                logger.info(f"PostgreSQL version: {db_info[2]}")
+
             return conn
-        
+
         # Fall back to individual parameters
-        logger.info("Connecting to database using individual parameters")
-        logger.info(f"Host: {config.DB_HOST}, Port: {config.DB_PORT}, DB: {config.DB_NAME}")
+        logger.info("DATABASE_URL not available, connecting using individual parameters")
+        logger.info(f"DB: {config.DB_NAME}, User: {config.DB_USER}, Host: {config.DB_HOST}, Port: {config.DB_PORT}")
+
         conn = psycopg2.connect(
             dbname=config.DB_NAME,
             user=config.DB_USER,
@@ -27,9 +37,18 @@ def get_db_connection():
             host=config.DB_HOST,
             port=config.DB_PORT
         )
+
+        # Log connection details for verification
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT current_database(), current_user, version()")
+            db_info = cursor.fetchone()
+            logger.info(f"Connected to database: {db_info[0]} as user: {db_info[1]}")
+            logger.info(f"PostgreSQL version: {db_info[2]}")
+
         return conn
     except Exception as e:
         logger.error(f"Failed to connect to database: {str(e)}")
+        logger.error(traceback.format_exc())
         raise
 
 

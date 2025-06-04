@@ -70,7 +70,28 @@ class IngredientUpdater:
         """
         conn = get_db_connection()
         try:
+            # Log database connection details
+            logger.info(f"Connected to database: {config.DB_NAME} at {config.DB_HOST}:{config.DB_PORT}")
+
+            # First check if the scraped_recipes table exists
             with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables
+                        WHERE table_schema = 'public'
+                        AND table_name = 'scraped_recipes'
+                    );
+                """)
+                table_exists = cursor.fetchone()[0]
+                if not table_exists:
+                    logger.error("Table 'scraped_recipes' does not exist in the database!")
+                    return []
+
+                # Get total count of recipes
+                cursor.execute("SELECT COUNT(*) FROM scraped_recipes")
+                total_recipes = cursor.fetchone()[0]
+                logger.info(f"Total recipes in database: {total_recipes}")
+
                 # Find recipes with missing metadata or specific metadata fields
                 cursor.execute("""
                     SELECT DISTINCT sr.id, sr.title, sr.source, sr.source_url
