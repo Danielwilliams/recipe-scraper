@@ -1,7 +1,7 @@
-# GitHub Actions Workflow: Update Recipe Ingredients
-# Place this file in: .github/workflows/update-ingredients.yml
+# GitHub Actions Workflow: Update Recipe Metadata
+# Place this file in: .github/workflows/update_ingredients_workflow.yml
 
-name: Update Missing Recipe Ingredients
+name: Update Recipe Metadata
 
 on:
   # Run manually
@@ -18,7 +18,7 @@ on:
     - cron: '0 2 * * 0'
 
 jobs:
-  update-ingredients:
+  update-metadata:
     runs-on: ubuntu-latest
     timeout-minutes: 60  # 1 hour timeout
     
@@ -78,7 +78,7 @@ jobs:
             sys.exit(1)
         "
         
-    - name: Run ingredient update job
+    - name: Run recipe metadata update job
       env:
         DATABASE_URL: ${{ secrets.DATABASE_URL }}
         DB_NAME: ${{ secrets.DB_NAME }}
@@ -89,21 +89,34 @@ jobs:
       run: |
         LIMIT=${{ github.event.inputs.limit || '50' }}
         echo "Processing up to $LIMIT recipes"
+        
+        # Run the new comprehensive metadata updater
+        python recipe_metadata_updater.py --limit $LIMIT
+        
+        # Also run the original ingredient updater as a backup
+        echo "Additionally running the original ingredient updater as a backup..."
         python ingredient_updater.py --limit $LIMIT
         
     - name: Generate summary report
       if: always()
       run: |
-        echo "## Ingredient Update Job Summary" >> $GITHUB_STEP_SUMMARY
+        echo "## Recipe Metadata Update Job Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "- **Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Limit:** ${{ github.event.inputs.limit || '50' }} recipes" >> $GITHUB_STEP_SUMMARY
         echo "- **Date:** $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Updated the following metadata fields:" >> $GITHUB_STEP_SUMMARY
+        echo "- Ingredients" >> $GITHUB_STEP_SUMMARY
+        echo "- Prep time & Cook time" >> $GITHUB_STEP_SUMMARY
+        echo "- Servings" >> $GITHUB_STEP_SUMMARY
+        echo "- Recipe notes" >> $GITHUB_STEP_SUMMARY
+        echo "- Nutrition information" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "Check the job logs above for detailed results." >> $GITHUB_STEP_SUMMARY
         
     - name: Notify on failure
       if: failure()
       run: |
-        echo "❌ Ingredient update job failed"
+        echo "❌ Recipe metadata update job failed"
         echo "Check the logs above for error details"
