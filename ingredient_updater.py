@@ -101,10 +101,13 @@ class IngredientUpdater:
                         OR sr.metadata->>'ingredients_list' IS NULL
                         OR sr.metadata->>'ingredients_list' = '[]'
                         OR sr.metadata->>'ingredients_list' = '""'
-                        OR sr.metadata->>'cook_time' IS NULL
-                        OR sr.metadata->>'prep_time' IS NULL
-                        OR sr.metadata->>'notes' IS NULL
-                        OR sr.metadata->>'nutrition' IS NULL
+                        OR (sr.metadata->>'cook_time') IS NULL
+                        OR (sr.metadata->>'prep_time') IS NULL
+                        OR (sr.metadata->>'notes') IS NULL
+                        OR (sr.metadata->>'nutrition') IS NULL
+                        OR (sr.metadata->>'nutrition') = '{}'
+                        OR (sr.metadata->>'nutrition_per_serving') IS NULL
+                        OR (sr.metadata->>'nutrition_per_serving') = '{}'
                     )
                     AND sr.source_url IS NOT NULL
                     AND sr.source_url != ''
@@ -166,18 +169,50 @@ class IngredientUpdater:
                 try:
                     # Try extraction with enhanced scrapers
                     recipe_data = scraper._extract_recipe_info(response.text, url)
-                    
+
                     if recipe_data:
                         logger.info(f"Successfully extracted recipe data using enhanced scraper")
-                        return {
+
+                        # Create a standardized structure with all required fields
+                        standardized_data = {
+                            # Required fields
                             'ingredients': recipe_data.get('ingredients', []),
-                            'cook_time': recipe_data.get('metadata', {}).get('cook_time'),
-                            'prep_time': recipe_data.get('metadata', {}).get('prep_time'),
-                            'total_time': recipe_data.get('metadata', {}).get('total_time'),
-                            'servings': recipe_data.get('metadata', {}).get('servings'),
                             'notes': recipe_data.get('notes', []),
-                            'nutrition': recipe_data.get('nutrition', {})
+                            'nutrition': recipe_data.get('nutrition', {}),
+
+                            # Optional fields with defaults
+                            'cook_time': None,
+                            'prep_time': None,
+                            'total_time': None,
+                            'servings': None
                         }
+
+                        # Extract time information, checking both top-level and metadata fields
+                        if 'cook_time' in recipe_data:
+                            standardized_data['cook_time'] = recipe_data['cook_time']
+                        elif recipe_data.get('metadata', {}).get('cook_time'):
+                            standardized_data['cook_time'] = recipe_data['metadata']['cook_time']
+
+                        if 'prep_time' in recipe_data:
+                            standardized_data['prep_time'] = recipe_data['prep_time']
+                        elif recipe_data.get('metadata', {}).get('prep_time'):
+                            standardized_data['prep_time'] = recipe_data['metadata']['prep_time']
+
+                        if 'total_time' in recipe_data:
+                            standardized_data['total_time'] = recipe_data['total_time']
+                        elif recipe_data.get('metadata', {}).get('total_time'):
+                            standardized_data['total_time'] = recipe_data['metadata']['total_time']
+
+                        if 'servings' in recipe_data:
+                            standardized_data['servings'] = recipe_data['servings']
+                        elif recipe_data.get('metadata', {}).get('servings'):
+                            standardized_data['servings'] = recipe_data['metadata']['servings']
+
+                        # Log what data we found
+                        available_fields = [k for k, v in standardized_data.items() if v]
+                        logger.info(f"Extracted data fields: {', '.join(available_fields)}")
+
+                        return standardized_data
                 except Exception as e:
                     logger.error(f"Error with enhanced scraper for {source}: {str(e)}")
                     logger.error(traceback.format_exc())
@@ -697,8 +732,30 @@ class IngredientUpdater:
         Returns:
             bool: True if successful, False otherwise
         """
-        if not recipe_data or not recipe_data.get('ingredients'):
+        # Check if we have any data to update
+        if not recipe_data:
+            logger.error(f"No recipe data provided for recipe {recipe_id}")
             return False
+
+        # Check if we have ingredients (the main requirement)
+        if not recipe_data.get('ingredients'):
+            logger.error(f"No ingredients found for recipe {recipe_id}")
+            return False
+
+        # Log what data we have available
+        available_fields = []
+        if recipe_data.get('ingredients'):
+            available_fields.append('ingredients')
+        if recipe_data.get('cook_time'):
+            available_fields.append('cook_time')
+        if recipe_data.get('prep_time'):
+            available_fields.append('prep_time')
+        if recipe_data.get('notes'):
+            available_fields.append('notes')
+        if recipe_data.get('nutrition'):
+            available_fields.append('nutrition')
+
+        logger.info(f"Updating recipe {recipe_id} with available fields: {', '.join(available_fields)}")
 
         conn = get_db_connection()
         try:
@@ -717,31 +774,74 @@ class IngredientUpdater:
                 # Update the metadata with new data
                 if recipe_data.get('ingredients'):
                     metadata['ingredients_list'] = recipe_data['ingredients']
-                
+
+                # Update cook_time
                 if recipe_data.get('cook_time'):
                     metadata['cook_time'] = recipe_data['cook_time']
-                
+
+                # Update prep_time
                 if recipe_data.get('prep_time'):
                     metadata['prep_time'] = recipe_data['prep_time']
-                
+
+                # Update total_time
                 if recipe_data.get('total_time'):
                     metadata['total_time'] = recipe_data['total_time']
-                
+
+                # Update servings
                 if recipe_data.get('servings'):
                     metadata['servings'] = recipe_data['servings']
-                
-                if recipe_data.get('notes'):
-                    metadata['notes'] = recipe_data['notes']
-                
-                if recipe_data.get('nutrition'):
-                    metadata['nutrition'] = recipe_data['nutrition']
+
+                # Update notes (required field)
+                # Use empty array if no notes found
+                metadata['notes'] = recipe_data.get('notes', [])
+
+                # Update nutrition (required field)
+                # Use empty object if no nutrition found
+                metadata['nutrition'] = recipe_data.get('nutrition', {})
+
+                # Add nutrition_per_serving for compatibility
+                metadata['nutrition_per_serving'] = recipe_data.get('nutrition', {})
+
+                # Check if we have all the required metadata fields
+                has_required_metadata = (
+                    'ingredients_list' in metadata and
+                    metadata['ingredients_list'] and
+                    'notes' in metadata and
+                    'nutrition' in metadata
+                )
+
+                # Log missing fields
+                if not has_required_metadata:
+                    missing_fields = []
+                    if 'ingredients_list' not in metadata or not metadata['ingredients_list']:
+                        missing_fields.append('ingredients_list')
+                    if 'notes' not in metadata:
+                        missing_fields.append('notes')
+                    if 'nutrition' not in metadata:
+                        missing_fields.append('nutrition')
+                    logger.warning(f"Recipe {recipe_id} still missing required metadata: {', '.join(missing_fields)}")
+
+                # Even if some fields are missing, update what we have
+                logger.info(f"Updating recipe {recipe_id} with metadata fields: {list(metadata.keys())}")
 
                 # Update the recipe's metadata in the database
+                # Using jsonb_set to only update the fields we have data for
                 cursor.execute("""
                     UPDATE scraped_recipes
                     SET metadata = %s::jsonb
                     WHERE id = %s
                 """, (json.dumps(metadata), recipe_id))
+
+                # Log a summary of the updated metadata
+                metadata_summary = {
+                    'ingredients_list': f"{len(metadata.get('ingredients_list', []))} items" if 'ingredients_list' in metadata else "missing",
+                    'notes': f"{len(metadata.get('notes', []))} items" if 'notes' in metadata else "missing",
+                    'nutrition': "present" if metadata.get('nutrition') else "missing",
+                    'cook_time': metadata.get('cook_time'),
+                    'prep_time': metadata.get('prep_time'),
+                    'servings': metadata.get('servings')
+                }
+                logger.info(f"Updated metadata for recipe {recipe_id}: {metadata_summary}")
 
                 # Also update top-level columns if available
                 if recipe_data.get('cook_time') or recipe_data.get('prep_time') or recipe_data.get('servings'):

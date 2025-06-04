@@ -216,54 +216,54 @@ class TastyRecipesBaseScraper:
     def _extract_recipe_info(self, html_content, url):
         """
         Extract structured recipe information from HTML, optimized for Tasty Recipes format
-        
+
         Args:
             html_content (str): HTML content of the recipe page
             url (str): URL of the recipe
-            
+
         Returns:
             dict: Extracted recipe information
         """
         try:
             soup = BeautifulSoup(html_content, 'lxml')
-            
+
             # Find Tasty Recipes container
             tasty_recipes_container = soup.select_one('div[id^="tasty-recipes-"], .tasty-recipes')
-            
+
             if not tasty_recipes_container:
                 logger.warning(f"No Tasty Recipes container found in {url}")
                 # Try to find any recipe container as fallback
                 tasty_recipes_container = soup.select_one('.recipe-container, article.post, .entry-content')
                 if not tasty_recipes_container:
                     return None
-            
+
             # Extract recipe details from Tasty Recipes format
             title = self._extract_tasty_title(tasty_recipes_container, soup)
             ingredients = self._extract_tasty_ingredients(tasty_recipes_container)
             instructions = self._extract_tasty_instructions(tasty_recipes_container)
             notes = self._extract_tasty_notes(tasty_recipes_container)
-            
+
             # Extract times and servings
             times_and_servings = self._extract_tasty_times_and_servings(tasty_recipes_container)
-            
+
             # Extract image
             image_url = self._extract_tasty_image(tasty_recipes_container, soup)
-            
+
             # Extract category, cuisine
             categories, cuisine = self._extract_tasty_categories(tasty_recipes_container, soup)
-            
+
             # Extract nutrition facts
             nutrition = self._extract_tasty_nutrition(tasty_recipes_container, soup)
-            
+
             # Skip if we couldn't extract required data
             if not title or not ingredients or not instructions:
                 logger.warning(f"Missing essential recipe data for {url}")
                 return None
-            
+
             # Determine complexity based on ingredients and instructions
             complexity = self._determine_complexity(ingredients, instructions)
-            
-            # Create recipe object
+
+            # Create recipe object with consistent metadata structure
             recipe = {
                 'title': title,
                 'ingredients': ingredients,
@@ -272,17 +272,32 @@ class TastyRecipesBaseScraper:
                 'source_url': url,
                 'date_scraped': datetime.now().isoformat(),
                 'complexity': complexity,
-                'metadata': times_and_servings,
+                'metadata': {
+                    'ingredients_list': ingredients,
+                    'cook_time': times_and_servings.get('cook_time'),
+                    'prep_time': times_and_servings.get('prep_time'),
+                    'total_time': times_and_servings.get('total_time'),
+                    'servings': times_and_servings.get('servings'),
+                    'yield': times_and_servings.get('yield'),
+                    'notes': notes,
+                    'nutrition': nutrition,
+                    'nutrition_per_serving': nutrition  # Include both formats for compatibility
+                },
                 'notes': notes,
                 'categories': categories,
                 'cuisine': cuisine,
                 'nutrition': nutrition,
-                'image_url': image_url
+                'image_url': image_url,
+                # Also add top-level fields for easy access
+                'cook_time': times_and_servings.get('cook_time'),
+                'prep_time': times_and_servings.get('prep_time'),
+                'total_time': times_and_servings.get('total_time'),
+                'servings': times_and_servings.get('servings')
             }
-            
+
             logger.info(f"Successfully extracted recipe: {title}")
             return recipe
-            
+
         except Exception as e:
             logger.error(f"Error extracting recipe info from {url}: {str(e)}")
             logger.error(f"Error details: {e}", exc_info=True)
@@ -629,31 +644,132 @@ class TastyRecipesBaseScraper:
     def _extract_tasty_nutrition(self, container, soup):
         """Extract nutrition information"""
         nutrition = {}
-        
+
         # Look for Nutrifox iframe or div
-        nutrifox_elem = soup.select_one('iframe[id^="nutrifox-label-"], .tasty-recipes-nutrifox')
+        nutrifox_elem = soup.select_one('iframe[id^="nutrifox-label-"], .tasty-recipes-nutrifox, .tasty-recipes-nutrition')
         if nutrifox_elem:
             # Try to find nutrition text
-            nutrition_text = container.get_text()
-            
-            # Extract common nutrition values
-            calories_match = re.search(r'calories:?\s*(\d+)', nutrition_text, re.IGNORECASE)
+            nutrition_text = nutrifox_elem.get_text() or container.get_text()
+
+            # Extract common nutrition values with more robust regex patterns
+            # Calories (without unit)
+            calories_match = re.search(r'(?:calories|kcal|cal):?\s*(\d+)', nutrition_text, re.IGNORECASE)
             if calories_match:
                 nutrition['calories'] = calories_match.group(1)
-            
-            fat_match = re.search(r'fat:?\s*(\d+)g', nutrition_text, re.IGNORECASE)
-            if fat_match:
-                nutrition['fat'] = fat_match.group(1)
-            
-            carbs_match = re.search(r'carb(?:ohydrate)?s?:?\s*(\d+)g', nutrition_text, re.IGNORECASE)
-            if carbs_match:
-                nutrition['carbs'] = carbs_match.group(1)
-            
-            protein_match = re.search(r'protein:?\s*(\d+)g', nutrition_text, re.IGNORECASE)
-            if protein_match:
-                nutrition['protein'] = protein_match.group(1)
-        
+
+            # Fat (with g unit)
+            fat_patterns = [
+                r'(?:total\s+)?fat:?\s*(\d+)(?:\.\d+)?\s*g',
+                r'(?:fat|total fat)(?:\(g\))?:?\s*(\d+)',
+                r'(\d+)(?:\.\d+)?\s*g\s+(?:fat|total fat)'
+            ]
+            for pattern in fat_patterns:
+                fat_match = re.search(pattern, nutrition_text, re.IGNORECASE)
+                if fat_match:
+                    nutrition['fat'] = fat_match.group(1)
+                    break
+
+            # Carbohydrates (with g unit)
+            carb_patterns = [
+                r'(?:carb|carbs|carbohydrates?):?\s*(\d+)(?:\.\d+)?\s*g',
+                r'(?:carb|carbs|carbohydrates?)(?:\(g\))?:?\s*(\d+)',
+                r'(\d+)(?:\.\d+)?\s*g\s+(?:carb|carbs|carbohydrates?)'
+            ]
+            for pattern in carb_patterns:
+                carbs_match = re.search(pattern, nutrition_text, re.IGNORECASE)
+                if carbs_match:
+                    nutrition['carbs'] = carbs_match.group(1)
+                    break
+
+            # Protein (with g unit)
+            protein_patterns = [
+                r'protein:?\s*(\d+)(?:\.\d+)?\s*g',
+                r'protein(?:\(g\))?:?\s*(\d+)',
+                r'(\d+)(?:\.\d+)?\s*g\s+protein'
+            ]
+            for pattern in protein_patterns:
+                protein_match = re.search(pattern, nutrition_text, re.IGNORECASE)
+                if protein_match:
+                    nutrition['protein'] = protein_match.group(1)
+                    break
+
+            # Additional nutrition info
+            sugar_match = re.search(r'sugar:?\s*(\d+)(?:\.\d+)?\s*g', nutrition_text, re.IGNORECASE)
+            if sugar_match:
+                nutrition['sugar'] = sugar_match.group(1)
+
+            fiber_match = re.search(r'fiber:?\s*(\d+)(?:\.\d+)?\s*g', nutrition_text, re.IGNORECASE)
+            if fiber_match:
+                nutrition['fiber'] = fiber_match.group(1)
+
+            sodium_match = re.search(r'sodium:?\s*(\d+)(?:\.\d+)?\s*mg', nutrition_text, re.IGNORECASE)
+            if sodium_match:
+                nutrition['sodium'] = sodium_match.group(1)
+
+        # If nutrition data is still empty, try JSON-LD
+        if not nutrition:
+            try:
+                for script in soup.find_all('script', {'type': 'application/ld+json'}):
+                    try:
+                        data = json.loads(script.string)
+
+                        # Handle different JSON-LD structures
+                        if isinstance(data, list):
+                            for item in data:
+                                if isinstance(item, dict) and item.get('@type') == 'Recipe' and item.get('nutrition'):
+                                    nutrition_data = item['nutrition']
+                                    if nutrition_data.get('calories'):
+                                        nutrition['calories'] = self._extract_numeric_value(nutrition_data['calories'])
+                                    if nutrition_data.get('fatContent'):
+                                        nutrition['fat'] = self._extract_numeric_value(nutrition_data['fatContent'])
+                                    if nutrition_data.get('carbohydrateContent'):
+                                        nutrition['carbs'] = self._extract_numeric_value(nutrition_data['carbohydrateContent'])
+                                    if nutrition_data.get('proteinContent'):
+                                        nutrition['protein'] = self._extract_numeric_value(nutrition_data['proteinContent'])
+                                    if nutrition_data.get('sugarContent'):
+                                        nutrition['sugar'] = self._extract_numeric_value(nutrition_data['sugarContent'])
+                                    if nutrition_data.get('fiberContent'):
+                                        nutrition['fiber'] = self._extract_numeric_value(nutrition_data['fiberContent'])
+                                    if nutrition_data.get('sodiumContent'):
+                                        nutrition['sodium'] = self._extract_numeric_value(nutrition_data['sodiumContent'])
+                                    break
+                        elif isinstance(data, dict) and data.get('@type') == 'Recipe' and data.get('nutrition'):
+                            nutrition_data = data['nutrition']
+                            if nutrition_data.get('calories'):
+                                nutrition['calories'] = self._extract_numeric_value(nutrition_data['calories'])
+                            if nutrition_data.get('fatContent'):
+                                nutrition['fat'] = self._extract_numeric_value(nutrition_data['fatContent'])
+                            if nutrition_data.get('carbohydrateContent'):
+                                nutrition['carbs'] = self._extract_numeric_value(nutrition_data['carbohydrateContent'])
+                            if nutrition_data.get('proteinContent'):
+                                nutrition['protein'] = self._extract_numeric_value(nutrition_data['proteinContent'])
+                            if nutrition_data.get('sugarContent'):
+                                nutrition['sugar'] = self._extract_numeric_value(nutrition_data['sugarContent'])
+                            if nutrition_data.get('fiberContent'):
+                                nutrition['fiber'] = self._extract_numeric_value(nutrition_data['fiberContent'])
+                            if nutrition_data.get('sodiumContent'):
+                                nutrition['sodium'] = self._extract_numeric_value(nutrition_data['sodiumContent'])
+                    except:
+                        continue
+            except:
+                pass
+
         return nutrition
+
+    def _extract_numeric_value(self, value):
+        """Extract numeric value from string with unit"""
+        if isinstance(value, (int, float)):
+            return str(value)
+
+        if not value:
+            return None
+
+        # Extract number from string like "150 calories" or "10g"
+        match = re.search(r'(\d+(?:\.\d+)?)', str(value))
+        if match:
+            return match.group(1)
+
+        return None
     
     def _determine_complexity(self, ingredients, instructions):
         """Determine recipe complexity based on ingredients and instructions"""

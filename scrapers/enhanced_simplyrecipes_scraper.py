@@ -283,7 +283,7 @@ class EnhancedSimplyRecipesScraper:
             # Determine complexity based on ingredients and instructions
             complexity = self._determine_complexity(ingredients, instructions)
             
-            # Create recipe object
+            # Create recipe object with consistent metadata structure
             recipe = {
                 'title': title,
                 'ingredients': ingredients,
@@ -292,13 +292,28 @@ class EnhancedSimplyRecipesScraper:
                 'source_url': url,
                 'date_scraped': datetime.now().isoformat(),
                 'complexity': complexity,
-                'metadata': metadata,
+                'metadata': {
+                    'ingredients_list': ingredients,
+                    'cook_time': metadata.get('cook_time'),
+                    'prep_time': metadata.get('prep_time'),
+                    'total_time': metadata.get('total_time'),
+                    'servings': metadata.get('servings'),
+                    'yield': metadata.get('yield'),
+                    'notes': notes,
+                    'nutrition': nutrition,
+                    'nutrition_per_serving': nutrition  # Include both formats for compatibility
+                },
                 'notes': notes,
                 'categories': categories,
                 'cuisine': cuisine,
                 'tags': tags,
                 'nutrition': nutrition,
-                'image_url': image_url
+                'image_url': image_url,
+                # Also add top-level fields for easy access
+                'cook_time': metadata.get('cook_time'),
+                'prep_time': metadata.get('prep_time'),
+                'total_time': metadata.get('total_time'),
+                'servings': metadata.get('servings')
             }
             
             logger.info(f"Successfully extracted recipe: {title}")
@@ -869,79 +884,160 @@ class EnhancedSimplyRecipesScraper:
     def _extract_nutrition(self, soup):
         """
         Extract nutrition information
-        
+
         Args:
             soup (BeautifulSoup): Parsed HTML
-            
+
         Returns:
             dict: Nutrition information
         """
         nutrition = {}
-        
+
         # Try nutrition info container
-        nutrition_table = soup.select_one('.nutrition-info__table, .nutrition-info')
+        nutrition_table = soup.select_one('.nutrition-info__table, .nutrition-info, .nutrition')
         if nutrition_table:
-            # Basic nutrition
-            calories_elem = nutrition_table.select_one('.nutrition-info__table--row:nth-child(1) .nutrition-info__table--cell')
-            if calories_elem:
-                try:
-                    nutrition['calories'] = float(re.sub(r'[^\d.]', '', calories_elem.get_text().strip()))
-                except:
-                    pass
-            
-            fat_elem = nutrition_table.select_one('.nutrition-info__table--row:nth-child(2) .nutrition-info__table--cell')
-            if fat_elem:
-                try:
-                    nutrition['fat'] = float(re.sub(r'[^\d.]', '', fat_elem.get_text().strip()))
-                except:
-                    pass
-            
-            carbs_elem = nutrition_table.select_one('.nutrition-info__table--row:nth-child(3) .nutrition-info__table--cell')
-            if carbs_elem:
-                try:
-                    nutrition['carbs'] = float(re.sub(r'[^\d.]', '', carbs_elem.get_text().strip()))
-                except:
-                    pass
-            
-            protein_elem = nutrition_table.select_one('.nutrition-info__table--row:nth-child(4) .nutrition-info__table--cell')
-            if protein_elem:
-                try:
-                    nutrition['protein'] = float(re.sub(r'[^\d.]', '', protein_elem.get_text().strip()))
-                except:
-                    pass
+            # Try to get nutrition text
+            nutrition_text = nutrition_table.get_text()
+
+            # Extract common nutrition values with more robust regex patterns
+            # Calories (without unit)
+            calories_match = re.search(r'(?:calories|kcal|cal):?\s*(\d+)', nutrition_text, re.IGNORECASE)
+            if calories_match:
+                nutrition['calories'] = calories_match.group(1)
+
+            # Fat (with g unit)
+            fat_patterns = [
+                r'(?:total\s+)?fat:?\s*(\d+)(?:\.\d+)?\s*g',
+                r'(?:fat|total fat)(?:\(g\))?:?\s*(\d+)',
+                r'(\d+)(?:\.\d+)?\s*g\s+(?:fat|total fat)'
+            ]
+            for pattern in fat_patterns:
+                fat_match = re.search(pattern, nutrition_text, re.IGNORECASE)
+                if fat_match:
+                    nutrition['fat'] = fat_match.group(1)
+                    break
+
+            # Carbohydrates (with g unit)
+            carb_patterns = [
+                r'(?:carb|carbs|carbohydrates?):?\s*(\d+)(?:\.\d+)?\s*g',
+                r'(?:carb|carbs|carbohydrates?)(?:\(g\))?:?\s*(\d+)',
+                r'(\d+)(?:\.\d+)?\s*g\s+(?:carb|carbs|carbohydrates?)'
+            ]
+            for pattern in carb_patterns:
+                carbs_match = re.search(pattern, nutrition_text, re.IGNORECASE)
+                if carbs_match:
+                    nutrition['carbs'] = carbs_match.group(1)
+                    break
+
+            # Protein (with g unit)
+            protein_patterns = [
+                r'protein:?\s*(\d+)(?:\.\d+)?\s*g',
+                r'protein(?:\(g\))?:?\s*(\d+)',
+                r'(\d+)(?:\.\d+)?\s*g\s+protein'
+            ]
+            for pattern in protein_patterns:
+                protein_match = re.search(pattern, nutrition_text, re.IGNORECASE)
+                if protein_match:
+                    nutrition['protein'] = protein_match.group(1)
+                    break
+
+            # If regex didn't work, try using CSS selectors
+            if not nutrition.get('calories'):
+                calories_elem = nutrition_table.select_one('.nutrition-info__table--row:nth-child(1) .nutrition-info__table--cell')
+                if calories_elem:
+                    try:
+                        nutrition['calories'] = str(int(float(re.sub(r'[^\d.]', '', calories_elem.get_text().strip()))))
+                    except:
+                        pass
+
+            if not nutrition.get('fat'):
+                fat_elem = nutrition_table.select_one('.nutrition-info__table--row:nth-child(2) .nutrition-info__table--cell')
+                if fat_elem:
+                    try:
+                        nutrition['fat'] = str(int(float(re.sub(r'[^\d.]', '', fat_elem.get_text().strip()))))
+                    except:
+                        pass
+
+            if not nutrition.get('carbs'):
+                carbs_elem = nutrition_table.select_one('.nutrition-info__table--row:nth-child(3) .nutrition-info__table--cell')
+                if carbs_elem:
+                    try:
+                        nutrition['carbs'] = str(int(float(re.sub(r'[^\d.]', '', carbs_elem.get_text().strip()))))
+                    except:
+                        pass
+
+            if not nutrition.get('protein'):
+                protein_elem = nutrition_table.select_one('.nutrition-info__table--row:nth-child(4) .nutrition-info__table--cell')
+                if protein_elem:
+                    try:
+                        nutrition['protein'] = str(int(float(re.sub(r'[^\d.]', '', protein_elem.get_text().strip()))))
+                    except:
+                        pass
         
-        # If not found, try JSON-LD
-        if not nutrition:
+        # If not found or incomplete, try JSON-LD
+        if not nutrition or len(nutrition) < 4:  # If we're missing any of the core nutritional info
             try:
                 for script in soup.find_all('script', {'type': 'application/ld+json'}):
-                    data = json.loads(script.string)
-                    recipe_data = None
-                    
-                    if isinstance(data, dict) and data.get('@type') == 'Recipe':
-                        recipe_data = data
-                    elif isinstance(data, list):
-                        for item in data:
-                            if isinstance(item, dict) and item.get('@type') == 'Recipe':
-                                recipe_data = item
-                                break
-                    
-                    if recipe_data and recipe_data.get('nutrition'):
-                        nutrition_data = recipe_data['nutrition']
-                        
-                        if nutrition_data.get('calories'):
-                            nutrition['calories'] = self._extract_numeric_value(nutrition_data['calories'])
-                        
-                        if nutrition_data.get('fatContent'):
-                            nutrition['fat'] = self._extract_numeric_value(nutrition_data['fatContent'])
-                        
-                        if nutrition_data.get('carbohydrateContent'):
-                            nutrition['carbs'] = self._extract_numeric_value(nutrition_data['carbohydrateContent'])
-                        
-                        if nutrition_data.get('proteinContent'):
-                            nutrition['protein'] = self._extract_numeric_value(nutrition_data['proteinContent'])
+                    try:
+                        data = json.loads(script.string)
+                        recipe_data = None
+
+                        if isinstance(data, dict) and data.get('@type') == 'Recipe':
+                            recipe_data = data
+                        elif isinstance(data, list):
+                            for item in data:
+                                if isinstance(item, dict) and item.get('@type') == 'Recipe':
+                                    recipe_data = item
+                                    break
+
+                        if recipe_data and recipe_data.get('nutrition'):
+                            nutrition_data = recipe_data['nutrition']
+
+                            if not nutrition.get('calories') and nutrition_data.get('calories'):
+                                nutrition['calories'] = self._extract_numeric_value(nutrition_data['calories'])
+
+                            if not nutrition.get('fat') and nutrition_data.get('fatContent'):
+                                nutrition['fat'] = self._extract_numeric_value(nutrition_data['fatContent'])
+
+                            if not nutrition.get('carbs') and nutrition_data.get('carbohydrateContent'):
+                                nutrition['carbs'] = self._extract_numeric_value(nutrition_data['carbohydrateContent'])
+
+                            if not nutrition.get('protein') and nutrition_data.get('proteinContent'):
+                                nutrition['protein'] = self._extract_numeric_value(nutrition_data['proteinContent'])
+
+                            # Additional nutritional info
+                            if nutrition_data.get('sugarContent'):
+                                nutrition['sugar'] = self._extract_numeric_value(nutrition_data['sugarContent'])
+
+                            if nutrition_data.get('fiberContent'):
+                                nutrition['fiber'] = self._extract_numeric_value(nutrition_data['fiberContent'])
+
+                            if nutrition_data.get('sodiumContent'):
+                                nutrition['sodium'] = self._extract_numeric_value(nutrition_data['sodiumContent'])
+                    except:
+                        continue
             except:
                 pass
-        
+
+        # If we still don't have nutrition data, provide default values
+        if not nutrition:
+            nutrition = {
+                'calories': '0',
+                'fat': '0',
+                'carbs': '0',
+                'protein': '0'
+            }
+
+        # Ensure all core nutrition values are strings for consistency
+        for key in ['calories', 'fat', 'carbs', 'protein']:
+            if key not in nutrition or nutrition[key] is None:
+                nutrition[key] = '0'
+            elif not isinstance(nutrition[key], str):
+                try:
+                    nutrition[key] = str(int(float(nutrition[key])))
+                except:
+                    nutrition[key] = '0'
+
         return nutrition
     
     def _extract_numeric_value(self, value):
