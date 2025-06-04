@@ -44,7 +44,7 @@ jobs:
         # Check if the input file exists and is not empty
         if [ ! -f "data/${{ github.event.inputs.file_name }}" ]; then
           echo "Warning: Input file data/${{ github.event.inputs.file_name }} not found. Creating an example file."
-          cat > "data/${{ github.event.inputs.file_name }}" << 'EOL'
+          cat > "data/${{ github.event.inputs.file_name }}" << EOF
 Vegetarian Pasta Salad 🍅🥑
 This Vegetarian Pasta Salad is a fresh and flavorful twist on the classic BLT-inspired dish.
 
@@ -63,11 +63,11 @@ Instructions:
 3. Add cherry tomatoes and diced avocado.
 4. Mix mayo with lemon juice for a simple dressing.
 5. Gently toss to combine. Season with salt and pepper.
-EOL
+EOF
           echo "Created example recipe file."
         elif [ ! -s "data/${{ github.event.inputs.file_name }}" ]; then
           echo "Warning: Input file data/${{ github.event.inputs.file_name }} is empty. Adding an example recipe."
-          cat > "data/${{ github.event.inputs.file_name }}" << 'EOL'
+          cat > "data/${{ github.event.inputs.file_name }}" << EOF
 Vegetarian Pasta Salad 🍅🥑
 This Vegetarian Pasta Salad is a fresh and flavorful twist on the classic BLT-inspired dish.
 
@@ -86,7 +86,7 @@ Instructions:
 3. Add cherry tomatoes and diced avocado.
 4. Mix mayo with lemon juice for a simple dressing.
 5. Gently toss to combine. Season with salt and pepper.
-EOL
+EOF
           echo "Added example recipe to file."
         fi
         
