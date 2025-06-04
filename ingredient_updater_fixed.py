@@ -17,7 +17,6 @@ from datetime import datetime
 from database.db_connector import get_db_connection
 from processors.ingredient_parser import IngredientParser
 import config
-import re
 
 # Import enhanced scrapers
 from scrapers.enhanced_simplyrecipes_scraper import EnhancedSimplyRecipesScraper
@@ -632,6 +631,8 @@ class IngredientUpdater:
         if not iso_duration:
             return None
             
+        import re
+        
         total_minutes = 0
         
         # Parse hours
@@ -659,6 +660,8 @@ class IngredientUpdater:
         if not text:
             return None
             
+        import re
+        
         match = re.search(r'(\d+)', str(text))
         if match:
             return int(match.group(1))
@@ -844,6 +847,7 @@ class IngredientUpdater:
 def main():
     """Main function for running as a script"""
     import argparse
+    import re
     
     parser = argparse.ArgumentParser(description='Update missing recipe metadata')
     parser.add_argument('--limit', type=int, default=50, 
