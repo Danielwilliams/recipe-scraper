@@ -36,31 +36,35 @@ class IngredientUpdater:
     def find_recipes_without_ingredients(self, limit=50):
         """
         Find recipes that have no ingredients in the database
-        
+
         Args:
             limit (int): Maximum number of recipes to process
-            
+
         Returns:
             list: List of recipe dictionaries with id, title, source, source_url
         """
         conn = get_db_connection()
         try:
             with conn.cursor() as cursor:
-                # Find recipes with no ingredients
+                # Find recipes with no ingredients in metadata
                 cursor.execute("""
                     SELECT DISTINCT sr.id, sr.title, sr.source, sr.source_url
                     FROM scraped_recipes sr
-                    LEFT JOIN recipe_ingredients ri ON sr.id = ri.recipe_id
-                    WHERE ri.recipe_id IS NULL
+                    WHERE (
+                        sr.metadata IS NULL
+                        OR sr.metadata->>'ingredients_list' IS NULL
+                        OR sr.metadata->>'ingredients_list' = '[]'
+                        OR sr.metadata->>'ingredients_list' = '""'
+                    )
                     AND sr.source_url IS NOT NULL
                     AND sr.source_url != ''
                     ORDER BY sr.id DESC
                     LIMIT %s
                 """, (limit,))
-                
+
                 recipes = cursor.fetchall()
                 logger.info(f"Found {len(recipes)} recipes without ingredients")
-                
+
                 # Convert to list of dictionaries
                 recipe_list = []
                 for recipe in recipes:
@@ -70,7 +74,7 @@ class IngredientUpdater:
                         'source': recipe[2],
                         'source_url': recipe[3]
                     })
-                
+
                 return recipe_list
                 
         except Exception as e:
@@ -269,54 +273,43 @@ class IngredientUpdater:
     def update_recipe_ingredients(self, recipe_id, ingredients):
         """
         Update a recipe's ingredients in the database
-        
+
         Args:
             recipe_id (int): Recipe ID
             ingredients (list): List of ingredient strings
-            
+
         Returns:
             bool: True if successful, False otherwise
         """
         if not ingredients:
             return False
-            
+
         conn = get_db_connection()
         try:
             with conn.cursor() as cursor:
-                # Clear existing ingredients (shouldn't be any, but just in case)
-                cursor.execute("DELETE FROM recipe_ingredients WHERE recipe_id = %s", (recipe_id,))
-                
-                # Insert new ingredients
-                for ingredient_text in ingredients:
-                    # Parse ingredient into components if possible
-                    try:
-                        parsed = self.ingredient_parser.parse_ingredient(ingredient_text)
-                        cursor.execute("""
-                            INSERT INTO recipe_ingredients
-                            (recipe_id, name, amount, unit, notes, category)
-                            VALUES (%s, %s, %s, %s, %s, %s)
-                        """, (
-                            recipe_id,
-                            parsed.get('name', ingredient_text),
-                            parsed.get('amount'),
-                            parsed.get('unit'),
-                            parsed.get('notes'),
-                            parsed.get('category', 'unknown')
-                        ))
-                    except:
-                        # If parsing fails, just store the raw text
-                        cursor.execute("""
-                            INSERT INTO recipe_ingredients
-                            (recipe_id, name, category)
-                            VALUES (%s, %s, %s)
-                        """, (
-                            recipe_id,
-                            ingredient_text,
-                            'unknown'
-                        ))
-                
+                # First, get the current metadata for the recipe
+                cursor.execute("SELECT metadata FROM scraped_recipes WHERE id = %s", (recipe_id,))
+                result = cursor.fetchone()
+
+                if not result:
+                    logger.error(f"Recipe {recipe_id} not found in database")
+                    return False
+
+                # Get existing metadata or initialize empty dict if None
+                metadata = result[0] if result[0] else {}
+
+                # Update the ingredients_list in metadata
+                metadata['ingredients_list'] = ingredients
+
+                # Update the recipe's metadata
+                cursor.execute("""
+                    UPDATE scraped_recipes
+                    SET metadata = %s::jsonb
+                    WHERE id = %s
+                """, (json.dumps(metadata), recipe_id))
+
                 conn.commit()
-                logger.info(f"Updated recipe {recipe_id} with {len(ingredients)} ingredients")
+                logger.info(f"Updated recipe {recipe_id} with {len(ingredients)} ingredients in metadata")
                 return True
                 
         except Exception as e:
