@@ -60,10 +60,16 @@ jobs:
         DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
         DB_PORT: ${{ secrets.DB_PORT }}
       run: |
+        if [ "${{ github.event.inputs.force_update || 'false' }}" = "true" ]; then
+          FORCE_UPDATE_FLAG="--force-update"
+        else
+          FORCE_UPDATE_FLAG=""
+        fi
+        
         python enhanced_facebook_scraper.py \
           --file "$FB_FILE" \
           --limit ${{ github.event.inputs.limit || '50' }} \
-          --force-update ${{ github.event.inputs.force_update || 'false' }}
+          $FORCE_UPDATE_FLAG
         
     - name: Upload processing logs
       uses: actions/upload-artifact@v4
