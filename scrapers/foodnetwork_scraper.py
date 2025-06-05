@@ -379,6 +379,63 @@ class FoodNetworkScraper:
                 if img_tag:
                     image_url = img_tag.get('src') or img_tag.get('data-src')
             
+            # Extract tags
+            tags = []
+            
+            # Look for tags/keywords in meta tags
+            keywords_meta = soup.find('meta', {'name': 'keywords'})
+            if keywords_meta and keywords_meta.get('content'):
+                keywords = keywords_meta['content'].split(',')
+                tags.extend([k.strip() for k in keywords if k.strip()])
+            
+            # Look for category/tag elements
+            tag_elements = soup.select('.o-Tags__a-Tag, .tag-item, .recipe-tag, a[href*="/tags/"], a[href*="/recipes/"]')
+            for elem in tag_elements:
+                tag_text = elem.text.strip()
+                if tag_text and len(tag_text) < 50:  # Reasonable tag length
+                    tags.append(tag_text)
+            
+            # Extract from breadcrumbs
+            breadcrumb_elements = soup.select('.breadcrumb__link, .o-Breadcrumbs__a-Link')
+            for crumb in breadcrumb_elements:
+                crumb_text = crumb.text.strip()
+                if crumb_text and crumb_text.lower() not in ['home', 'recipes', 'food network']:
+                    tags.append(crumb_text)
+            
+            # Generate tags based on content analysis
+            combined_text = (title + ' ' + ' '.join(ingredients) + ' ' + ' '.join(instructions)).lower()
+            
+            # Diet-related tags
+            diet_terms = {
+                'vegetarian': ['vegetarian', 'veggie'],
+                'vegan': ['vegan'],
+                'gluten-free': ['gluten-free', 'gluten free'],
+                'dairy-free': ['dairy-free', 'dairy free'],
+                'keto': ['keto', 'ketogenic'],
+                'paleo': ['paleo'],
+                'low-carb': ['low-carb', 'low carb'],
+                'healthy': ['healthy', 'nutritious']
+            }
+            
+            for tag, terms in diet_terms.items():
+                if any(term in combined_text for term in terms):
+                    tags.append(tag)
+            
+            # Meal type tags
+            meal_types = ['breakfast', 'lunch', 'dinner', 'dessert', 'appetizer', 'snack', 'brunch']
+            for meal in meal_types:
+                if meal in combined_text:
+                    tags.append(meal)
+            
+            # Cooking method tags
+            cooking_methods = ['grilled', 'baked', 'fried', 'roasted', 'slow cooker', 'instant pot', 'air fryer']
+            for method in cooking_methods:
+                if method in combined_text:
+                    tags.append(method)
+            
+            # Remove duplicates and clean up
+            tags = list(set([tag.lower().strip() for tag in tags if tag]))
+            
             recipe = {
                 'title': title,
                 'ingredients': ingredients,
@@ -389,6 +446,7 @@ class FoodNetworkScraper:
                 'complexity': complexity,
                 'metadata': metadata,
                 'image_url': image_url,  # Add image URL field
+                'tags': tags,  # Add tags field
             }
             
             return recipe

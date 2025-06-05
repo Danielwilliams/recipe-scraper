@@ -1,0 +1,66 @@
+name: Process Facebook URLs
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Maximum number of URLs to process (default: 50)'
+        required: false
+        default: '50'
+      force_update:
+        description: 'Force update existing recipes'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  process-facebook-urls:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Verify FB URLs file exists
+      run: |
+        if [ ! -f "data/FB_URLs.txt" ]; then
+          echo "❌ FB_URLs.txt not found in data/ directory"
+          echo "Please upload your FB URLs file to data/FB_URLs.txt"
+          exit 1
+        fi
+        echo "✅ FB URLs file found"
+        echo "File size: $(wc -l < data/FB_URLs.txt) lines"
+        
+    - name: Process Facebook URLs
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        DB_HOST: ${{ secrets.DB_HOST }}
+        DB_NAME: ${{ secrets.DB_NAME }}
+        DB_USER: ${{ secrets.DB_USER }}
+        DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        DB_PORT: ${{ secrets.DB_PORT }}
+      run: |
+        python enhanced_facebook_scraper.py \
+          --file "data/FB_URLs.txt" \
+          --limit ${{ github.event.inputs.limit || '50' }} \
+          --force-update ${{ github.event.inputs.force_update || 'false' }}
+        
+    - name: Upload processing logs
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: facebook-processing-logs
+        path: |
+          enhanced_facebook_scraper.log
+          recipe_images/
+        retention-days: 7

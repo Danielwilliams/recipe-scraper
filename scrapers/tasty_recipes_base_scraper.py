@@ -251,6 +251,9 @@ class TastyRecipesBaseScraper:
 
             # Extract category, cuisine
             categories, cuisine = self._extract_tasty_categories(tasty_recipes_container, soup)
+            
+            # Extract tags
+            tags = self._extract_tasty_tags(tasty_recipes_container, soup, ingredients, instructions, categories)
 
             # Extract nutrition facts
             nutrition = self._extract_tasty_nutrition(tasty_recipes_container, soup)
@@ -286,6 +289,7 @@ class TastyRecipesBaseScraper:
                 'notes': notes,
                 'categories': categories,
                 'cuisine': cuisine,
+                'tags': tags,
                 'nutrition': nutrition,
                 'image_url': image_url,
                 # Also add top-level fields for easy access
@@ -770,6 +774,98 @@ class TastyRecipesBaseScraper:
             return match.group(1)
 
         return None
+    
+    def _extract_tasty_tags(self, container, soup, ingredients, instructions, categories):
+        """Extract tags from various sources"""
+        tags = []
+        
+        # Add categories as tags
+        if categories:
+            tags.extend([cat.lower() for cat in categories])
+        
+        # Look for meta keywords
+        keywords_meta = soup.find('meta', {'name': 'keywords'})
+        if keywords_meta and keywords_meta.get('content'):
+            keywords = keywords_meta['content'].split(',')
+            tags.extend([k.strip().lower() for k in keywords if k.strip()])
+        
+        # Look for tag elements on the page
+        tag_selectors = [
+            '.recipe-tag', '.tag', '.post-tag', 
+            'a[rel="tag"]', '.entry-tags a', '.tags a',
+            '.tagcloud a', '.tag-links a'
+        ]
+        
+        for selector in tag_selectors:
+            tag_elements = soup.select(selector)
+            for elem in tag_elements:
+                tag_text = elem.text.strip()
+                if tag_text and len(tag_text) < 50:
+                    tags.append(tag_text.lower())
+        
+        # Look for Tasty Recipes specific tags
+        keywords_section = container.select_one('.tasty-recipes-keywords')
+        if keywords_section:
+            keywords_text = keywords_section.get_text().strip()
+            if keywords_text:
+                # Remove "Keywords:" prefix if present
+                keywords_text = re.sub(r'^keywords?:?\s*', '', keywords_text, flags=re.IGNORECASE)
+                # Split by comma or space
+                keywords = re.split(r'[,\s]+', keywords_text)
+                tags.extend([k.strip().lower() for k in keywords if k.strip()])
+        
+        # Generate tags from content analysis
+        combined_text = ' '.join(ingredients + instructions).lower()
+        
+        # Diet-related tags
+        diet_terms = {
+            'vegetarian': ['vegetarian', 'veggie', 'meatless'],
+            'vegan': ['vegan', 'plant-based'],
+            'gluten-free': ['gluten-free', 'gluten free', 'celiac'],
+            'dairy-free': ['dairy-free', 'dairy free', 'lactose-free'],
+            'keto': ['keto', 'ketogenic', 'low-carb'],
+            'paleo': ['paleo', 'caveman'],
+            'whole30': ['whole30', 'whole 30'],
+            'low-fat': ['low-fat', 'low fat', 'light'],
+            'sugar-free': ['sugar-free', 'sugar free', 'no sugar']
+        }
+        
+        for tag, terms in diet_terms.items():
+            if any(term in combined_text for term in terms):
+                tags.append(tag)
+        
+        # Meal type tags
+        meal_types = ['breakfast', 'brunch', 'lunch', 'dinner', 'dessert', 'appetizer', 'snack', 'beverage']
+        for meal in meal_types:
+            if meal in combined_text:
+                tags.append(meal)
+        
+        # Cooking method tags
+        cooking_methods = [
+            'baked', 'grilled', 'fried', 'roasted', 'steamed', 'sauteed',
+            'slow cooker', 'instant pot', 'air fryer', 'pressure cooker',
+            'no-bake', 'one-pot', 'sheet pan'
+        ]
+        for method in cooking_methods:
+            if method in combined_text:
+                tags.append(method)
+        
+        # Season/holiday tags
+        seasonal_terms = {
+            'summer': ['summer', 'bbq', 'picnic', 'beach'],
+            'fall': ['fall', 'autumn', 'thanksgiving', 'pumpkin'],
+            'winter': ['winter', 'christmas', 'holiday', 'warm', 'comfort'],
+            'spring': ['spring', 'easter', 'fresh']
+        }
+        
+        for season, terms in seasonal_terms.items():
+            if any(term in combined_text for term in terms):
+                tags.append(season)
+        
+        # Remove duplicates and clean
+        tags = list(set([tag.strip().lower() for tag in tags if tag and len(tag) > 2]))
+        
+        return tags
     
     def _determine_complexity(self, ingredients, instructions):
         """Determine recipe complexity based on ingredients and instructions"""
