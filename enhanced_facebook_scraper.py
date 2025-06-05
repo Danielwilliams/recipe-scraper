@@ -89,31 +89,11 @@ class EnhancedFacebookScraper:
         """Extract recipe information from Facebook HTML content"""
         soup = BeautifulSoup(html_content, 'html.parser')
         
-        # Try to find recipe text in various elements
-        recipe_text = ""
-        
-        # Look for recipe content in common Facebook post elements
-        selectors = [
-            '[data-testid="post_message"]',
-            '.userContent',
-            '.text_exposed_root',
-            '[role="article"] span',
-            'div[data-ad-preview="message"]'
-        ]
-        
-        for selector in selectors:
-            elements = soup.select(selector)
-            for element in elements:
-                text = element.get_text(strip=True)
-                if len(text) > len(recipe_text):
-                    recipe_text = text
-        
-        # If no specific selectors work, try getting all text
-        if not recipe_text:
-            recipe_text = soup.get_text()
+        # Find the specific post content by looking for the URL
+        recipe_text = self._find_recipe_text_by_url(soup, source_url)
         
         if not recipe_text:
-            logger.warning(f"No text content found for {source_url}")
+            logger.warning(f"No specific recipe content found for URL: {source_url}")
             return None
         
         # Check if this looks like a recipe
@@ -125,11 +105,68 @@ class EnhancedFacebookScraper:
         recipe_info = self._extract_recipe_info(recipe_text, source_url)
         
         # Try to extract image URL
-        image_url = self._extract_image_url(soup, source_url)
+        image_url = self._extract_image_url_by_url(soup, source_url)
         if image_url:
             recipe_info['image_url'] = image_url
         
         return recipe_info
+    
+    def _find_recipe_text_by_url(self, soup, source_url):
+        """Find recipe text associated with a specific URL in the HTML"""
+        # Look for the URL link and find associated content
+        url_link = soup.find('a', href=source_url)
+        if not url_link:
+            # Try partial URL matching
+            for link in soup.find_all('a', href=True):
+                if source_url in link['href'] or link['href'] in source_url:
+                    url_link = link
+                    break
+        
+        if url_link:
+            # Look for recipe content near this link
+            # Check parent containers
+            for parent in [url_link.parent, url_link.parent.parent if url_link.parent else None]:
+                if parent:
+                    # Look for recipe text in the same container
+                    text_elements = parent.find_all(text=True)
+                    full_text = ' '.join([t.strip() for t in text_elements if t.strip()])
+                    
+                    # If we found substantial text that looks like a recipe, use it
+                    if len(full_text) > 100 and self._has_recipe_indicators(full_text):
+                        return full_text
+        
+        # Fallback: return None so we skip this URL
+        logger.warning(f"Could not find specific recipe content for {source_url}")
+        return None
+    
+    def _has_recipe_indicators(self, text):
+        """Quick check if text has recipe indicators"""
+        text_lower = text.lower()
+        indicators = ['ingredients', 'instructions', 'directions', 'recipe', 'cook', 'bake']
+        return any(indicator in text_lower for indicator in indicators)
+    
+    def _extract_image_url_by_url(self, soup, source_url):
+        """Extract image URL associated with a specific post URL"""
+        # Look for the URL link and find associated image
+        url_link = soup.find('a', href=source_url)
+        if not url_link:
+            # Try partial URL matching
+            for link in soup.find_all('a', href=True):
+                if source_url in link['href'] or link['href'] in source_url:
+                    url_link = link
+                    break
+        
+        if url_link:
+            # Look for images near this link
+            for parent in [url_link.parent, url_link.parent.parent if url_link.parent else None]:
+                if parent:
+                    img = parent.find('img')
+                    if img and img.get('src'):
+                        src = img['src']
+                        if 'scontent' in src and any(ext in src for ext in ['.jpg', '.jpeg', '.png']):
+                            return src
+        
+        return None
     
     def _is_recipe_content(self, text):
         """Check if text content appears to be a recipe"""
@@ -324,24 +361,12 @@ class EnhancedFacebookScraper:
         
         return None
     
-    def _extract_image_url(self, soup, source_url):
-        """Extract image URL from HTML"""
-        image_url = None
-        
-        # Try various methods to find images
-        # Method 1: img tags with src
-        img_tags = soup.find_all('img')
-        for img in img_tags:
-            src = img.get('src')
-            if src and 'scontent' in src and any(ext in src for ext in ['.jpg', '.jpeg', '.png']):
-                image_url = src
-                break
-        
-        if image_url:
-            # Make sure URL is absolute
-            image_url = urljoin(source_url, image_url)
-        
-        return image_url
+    def fetch_and_extract_recipe(self, url):
+        """Fetch individual Facebook post and extract recipe"""
+        # Note: Facebook posts often require authentication or get blocked
+        # For now, we'll return None to fall back to the HTML parsing approach
+        logger.info(f"Individual post fetching not implemented (Facebook blocks most requests)")
+        return None
     
     def check_recipe_exists(self, title, source='Facebook'):
         """Check if recipe already exists in database"""
@@ -453,8 +478,15 @@ class EnhancedFacebookScraper:
             try:
                 logger.info(f"Processing URL: {url}")
                 
-                # Extract recipe from the same HTML content since we already have it
-                recipe_info = self.extract_recipe_from_html(html_content, url)
+                # Try to fetch individual post content
+                individual_recipe_info = self.fetch_and_extract_recipe(url)
+                
+                # If individual fetch fails, fall back to extracting from the main HTML
+                if individual_recipe_info:
+                    recipe_info = individual_recipe_info
+                else:
+                    logger.warning(f"Could not fetch individual post, trying to extract from main HTML")
+                    recipe_info = self.extract_recipe_from_html(html_content, url)
                 
                 if not recipe_info:
                     logger.info(f"No recipe found at {url}")
