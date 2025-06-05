@@ -1,0 +1,76 @@
+name: Update Facebook URLs (Simple)
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_update:
+        description: 'Force update existing URLs'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  update-facebook-urls:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Verify FB URLs file exists
+      run: |
+        if [ -f "data/FB URLs.txt" ]; then
+          FB_FILE="data/FB URLs.txt"
+          echo "✅ Found: data/FB URLs.txt (with space)"
+        elif [ -f "data/FB_URLs.txt" ]; then
+          FB_FILE="data/FB_URLs.txt"
+          echo "✅ Found: data/FB_URLs.txt (with underscore)"
+        else
+          echo "❌ FB URLs file not found in data/ directory"
+          echo "Please upload your FB URLs file as either:"
+          echo "  - data/FB URLs.txt (with space)"
+          echo "  - data/FB_URLs.txt (with underscore)"
+          echo "Current files in data/:"
+          ls -la data/ || echo "data/ directory not found"
+          exit 1
+        fi
+        echo "File size: $(wc -l < "$FB_FILE") lines"
+        echo "FB_FILE=$FB_FILE" >> $GITHUB_ENV
+        
+    - name: Update Facebook URLs
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        DB_HOST: ${{ secrets.DB_HOST }}
+        DB_NAME: ${{ secrets.DB_NAME }}
+        DB_USER: ${{ secrets.DB_USER }}
+        DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        DB_PORT: ${{ secrets.DB_PORT }}
+      run: |
+        if [ "${{ github.event.inputs.force_update || 'false' }}" = "true" ]; then
+          FORCE_UPDATE_FLAG="--force-update"
+        else
+          FORCE_UPDATE_FLAG=""
+        fi
+        
+        python simple_facebook_url_updater.py \
+          --file "$FB_FILE" \
+          $FORCE_UPDATE_FLAG
+        
+    - name: Upload processing logs
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: facebook-url-update-logs
+        path: |
+          simple_facebook_url_updater.log
+        retention-days: 7
