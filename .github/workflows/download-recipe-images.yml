@@ -26,7 +26,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -65,7 +65,7 @@ jobs:
         python download_recipe_images.py $ARGS
         
     - name: Upload images as artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: success()
       with:
         name: recipe-images-${{ github.run_id }}
@@ -73,7 +73,7 @@ jobs:
         retention-days: 7
         
     - name: Upload logs
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: download-logs-${{ github.run_id }}
