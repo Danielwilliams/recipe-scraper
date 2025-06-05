@@ -1,0 +1,98 @@
+name: Download Recipe Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Number of recipes to process (leave empty for all)'
+        required: false
+        type: number
+      recipe_ids:
+        description: 'Comma-separated recipe IDs (leave empty for all)'
+        required: false
+        type: string
+      update_db:
+        description: 'Update database with image URLs'
+        required: false
+        type: boolean
+        default: true
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  download-images:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install beautifulsoup4
+        
+    - name: Create output directory
+      run: mkdir -p recipe_images
+      
+    - name: Download recipe images
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        DB_NAME: ${{ secrets.DB_NAME }}
+        DB_USER: ${{ secrets.DB_USER }}
+        DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        DB_HOST: ${{ secrets.DB_HOST }}
+        DB_PORT: ${{ secrets.DB_PORT }}
+      run: |
+        ARGS=""
+        if [ -n "${{ github.event.inputs.limit }}" ]; then
+          ARGS="$ARGS --limit ${{ github.event.inputs.limit }}"
+        fi
+        if [ -n "${{ github.event.inputs.recipe_ids }}" ]; then
+          ARGS="$ARGS --recipe-ids ${{ github.event.inputs.recipe_ids }}"
+        fi
+        if [ "${{ github.event.inputs.update_db }}" = "true" ]; then
+          ARGS="$ARGS --update-db"
+        fi
+        
+        python download_recipe_images.py $ARGS
+        
+    - name: Upload images as artifacts
+      uses: actions/upload-artifact@v3
+      if: success()
+      with:
+        name: recipe-images-${{ github.run_id }}
+        path: recipe_images/
+        retention-days: 7
+        
+    - name: Upload logs
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: download-logs-${{ github.run_id }}
+        path: download_images.log
+        retention-days: 7
+        
+    - name: Summary
+      if: always()
+      run: |
+        echo "## Download Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [ -f download_images.log ]; then
+          echo "### Log Summary" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          tail -n 20 download_images.log >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          
+          # Count images downloaded
+          IMAGE_COUNT=$(find recipe_images -type f -name "*.jpg" -o -name "*.png" -o -name "*.jpeg" | wc -l)
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Total images downloaded:** $IMAGE_COUNT" >> $GITHUB_STEP_SUMMARY
+        fi
