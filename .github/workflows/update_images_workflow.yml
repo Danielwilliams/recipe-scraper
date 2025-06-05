@@ -13,13 +13,14 @@ on:
         default: '50'
         type: string
       method:
-        description: 'Method to update images (scrape, search)'
+        description: 'Method to update images (scraper, direct, search)'
         required: false
-        default: 'scrape'
+        default: 'direct'
         type: choice
         options:
-          - scrape
-          - search
+          - scraper  # Uses main.py with registered scrapers
+          - direct   # Uses update_recipe_images.py for any site
+          - search   # Uses find_recipe_images.py with image search APIs
   
   # Run on schedule (monthly on the first day at 1 AM UTC)
   schedule:
@@ -99,14 +100,17 @@ jobs:
         PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
       run: |
         LIMIT="${{ github.event.inputs.limit || '50' }}"
-        METHOD="${{ github.event.inputs.method || 'scrape' }}"
+        METHOD="${{ github.event.inputs.method || 'direct' }}"
         echo "Updating images for up to $LIMIT recipes using $METHOD method"
-        
-        if [ "$METHOD" = "scrape" ]; then
-          # Use main.py with --update-images flag
+
+        if [ "$METHOD" = "scraper" ]; then
+          # Use main.py with --update-images flag (uses registered scrapers)
           python main.py --update-images --limit $LIMIT
+        elif [ "$METHOD" = "direct" ]; then
+          # Use our new direct web scraping approach
+          python update_recipe_images.py --limit $LIMIT
         else
-          # Use find_recipe_images.py
+          # Use find_recipe_images.py (image search APIs)
           python find_recipe_images.py --update-db --limit $LIMIT
         fi
         
@@ -116,7 +120,7 @@ jobs:
         echo "## Recipe Image Update Job Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "- **Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Method:** ${{ github.event.inputs.method || 'scrape' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Method:** ${{ github.event.inputs.method || 'direct' }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Limit:** ${{ github.event.inputs.limit || '50' }} recipes" >> $GITHUB_STEP_SUMMARY
         echo "- **Date:** $(date)" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY

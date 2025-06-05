@@ -68,7 +68,7 @@ def update_image_urls():
         scrapers = {
             #'AllRecipes': AllRecipesScraper(),
             #'EatingWell': EatingWellScraper(),
-            #'Food Network': FoodNetworkScraper(),
+            'Food Network': FoodNetworkScraper(),  # Uncommented for image updates
             'Pinch of Yum': EnhancedPinchOfYumScraper(),  # Use enhanced scraper
             'SimplyRecipes': EnhancedSimplyRecipesScraper(),  # Use enhanced scraper
             'MyProtein': MyProteinScraper(),
@@ -128,8 +128,8 @@ def update_image_urls():
                         logger.error(f"Error updating recipe ID {recipe['id']}: {str(e)}")
                         failed_count += 1
             else:
-                logger.warning(f"No scraper available for source: {source}")
-                failed_count += len(recipes)
+                logger.info(f"Skipping recipes from source: {source} (no scraper available)")
+                # Don't count these as failures, just skip them
         
         logger.info(f"Update complete. Updated: {updated_count}, Failed: {failed_count}")
         
