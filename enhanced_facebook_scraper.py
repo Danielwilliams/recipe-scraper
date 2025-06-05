@@ -543,7 +543,8 @@ def main():
     possible_paths = [
         args.file,
         "FB URLs.txt",
-        "data/FB_URLs.txt",
+        "data/FB URLs.txt",  # With space
+        "data/FB_URLs.txt",  # With underscore
         "/mnt/e/recipe-scraper/FB URLs.txt"
     ]
     

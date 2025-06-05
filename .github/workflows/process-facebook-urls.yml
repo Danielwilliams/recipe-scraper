@@ -33,13 +33,23 @@ jobs:
         
     - name: Verify FB URLs file exists
       run: |
-        if [ ! -f "data/FB_URLs.txt" ]; then
-          echo "❌ FB_URLs.txt not found in data/ directory"
-          echo "Please upload your FB URLs file to data/FB_URLs.txt"
+        if [ -f "data/FB URLs.txt" ]; then
+          FB_FILE="data/FB URLs.txt"
+          echo "✅ Found: data/FB URLs.txt (with space)"
+        elif [ -f "data/FB_URLs.txt" ]; then
+          FB_FILE="data/FB_URLs.txt"
+          echo "✅ Found: data/FB_URLs.txt (with underscore)"
+        else
+          echo "❌ FB URLs file not found in data/ directory"
+          echo "Please upload your FB URLs file as either:"
+          echo "  - data/FB URLs.txt (with space)"
+          echo "  - data/FB_URLs.txt (with underscore)"
+          echo "Current files in data/:"
+          ls -la data/ || echo "data/ directory not found"
           exit 1
         fi
-        echo "✅ FB URLs file found"
-        echo "File size: $(wc -l < data/FB_URLs.txt) lines"
+        echo "File size: $(wc -l < "$FB_FILE") lines"
+        echo "FB_FILE=$FB_FILE" >> $GITHUB_ENV
         
     - name: Process Facebook URLs
       env:
@@ -51,7 +61,7 @@ jobs:
         DB_PORT: ${{ secrets.DB_PORT }}
       run: |
         python enhanced_facebook_scraper.py \
-          --file "data/FB_URLs.txt" \
+          --file "$FB_FILE" \
           --limit ${{ github.event.inputs.limit || '50' }} \
           --force-update ${{ github.event.inputs.force_update || 'false' }}
         
