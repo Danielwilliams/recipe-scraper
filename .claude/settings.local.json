@@ -4,7 +4,9 @@
       "Bash(python3:*)",
       "Bash(pip3 install:*)",
       "Bash(pip install:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(grep:*)",
+      "Bash(chmod:*)"
     ],
     "deny": []
   }

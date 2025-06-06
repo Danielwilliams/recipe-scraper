@@ -1,0 +1,77 @@
+name: Fix Placeholder Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Maximum number of recipes to process'
+        required: false
+        default: '100'
+        type: string
+      dry_run:
+        description: 'Run without updating database (dry run)'
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    # Run daily at 3 AM UTC
+    - cron: '0 3 * * *'
+
+jobs:
+  fix-placeholder-images:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Cache pip packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run placeholder image fixer
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
+      run: |
+        # Set script arguments based on workflow inputs
+        ARGS=""
+        
+        # Add limit if provided
+        if [ -n "${{ github.event.inputs.limit }}" ]; then
+          ARGS="$ARGS --limit ${{ github.event.inputs.limit }}"
+        else
+          # Default limit for scheduled runs
+          ARGS="$ARGS --limit 100"
+        fi
+        
+        # Add dry-run flag if requested
+        if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+          ARGS="$ARGS --dry-run"
+        fi
+        
+        echo "Running fix_placeholder_images.py with args: $ARGS"
+        python fix_placeholder_images.py $ARGS
+    
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: fix-placeholder-images-logs
+        path: |
+          fix_placeholder_images.log
+        retention-days: 7
